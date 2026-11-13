@@ -1,0 +1,10 @@
+# Normalize line endings to LF in the repository regardless of the
+# checking-out platform's working-directory setting, to avoid cross-platform
+# diff noise between Windows and Unix contributors.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

@@ -1,0 +1,15 @@
+{
+  // Minimal, intentionally lenient Markdown lint configuration for M0.
+  // Long-form architecture/ADR documents legitimately use long lines, tables,
+  // and repeated section headings (e.g. "Decision", "Consequences") across
+  // separate ADR files, none of which indicate a real documentation defect.
+  "config": {
+    "default": true,
+    "MD013": false, // line length — long technical prose and tables are expected
+    "MD024": { "siblings_only": true }, // allow repeated headings across different files
+    "MD033": false, // inline HTML (not currently used, but not banned)
+    "MD041": false // first-line heading (not relevant once front-matter/badges are added later)
+  },
+  "globs": ["**/*.md"],
+  "ignores": ["node_modules/**"]
+}

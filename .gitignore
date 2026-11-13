@@ -1,0 +1,92 @@
+# FlowForge .gitignore
+# Covers the approved toolchain (Python/FastAPI backend, Next.js/TypeScript
+# frontend, PostgreSQL, Docker) across Windows, macOS, and Linux development
+# environments. Directories referenced below (backend/, frontend/, deploy/) do
+# not exist yet as of M0 — these rules are pre-established for when they do.
+
+# --- Secrets and local configuration (never commit) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+flowforge_secret_key*
+
+# --- Python (backend/) ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.installed.cfg
+*.egg
+.python-version.local
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+.tox/
+
+# --- Node.js / Next.js (frontend/) ---
+node_modules/
+.next/
+out/
+.turbo/
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# --- PostgreSQL local data / backups ---
+*.sql.dump
+pgdata/
+backups/
+*.backup
+
+# --- Docker ---
+*.pid
+
+# --- Editors / IDEs ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS-specific ---
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+# Linux
+*~
+.directory
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Alembic (keep migration scripts, ignore local sqlite test artifacts) ---
+*.sqlite3
+*.sqlite3-journal
