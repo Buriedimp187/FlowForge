@@ -54,19 +54,31 @@ jobs:
           done
           exit $missing
 
-      - name: Verify every ADR 0001-0018 exists and is indexed
+      - name: Verify every ADR 0001-0018 exists and has an exact index link
         run: |
           set -euo pipefail
           missing=0
           for n in $(seq -w 1 18); do
-            match=$(ls docs/adr/ | grep -E "^00${n}-" || true)
-            if [ -z "$match" ]; then
-              echo "::error::No ADR file found matching prefix 00${n}-"
+            id="00${n}"
+            files=$(ls docs/adr/ | grep -E "^${id}-.*\.md$" || true)
+            count=$(echo "$files" | grep -c . || true)
+            if [ "$count" -eq 0 ]; then
+              echo "::error::No ADR file found matching prefix ${id}-"
               missing=1
               continue
             fi
-            if ! grep -q "0${n}" docs/adr/README.md; then
-              echo "::error::ADR 0${n} is not referenced in docs/adr/README.md"
+            if [ "$count" -gt 1 ]; then
+              echo "::error::Multiple ADR files match prefix ${id}-: $files"
+              missing=1
+              continue
+            fi
+            filename="$files"
+            # Exact Markdown link match: "[0001](0001-modular-monolith.md)".
+            # A substring grep on just the id would also match 0010-0018, so
+            # this requires the full "[id](filename)" pair verbatim.
+            link="[${id}](${filename})"
+            if ! grep -qF -- "$link" docs/adr/README.md; then
+              echo "::error::docs/adr/README.md does not contain the exact link ${link}"
               missing=1
             fi
           done

@@ -8,8 +8,9 @@ demonstrated before v0.1 ships.
 
 Deliverables: repository structure, `LICENSE`, `README.md`, `.gitignore`, editor
 config, the canonical architecture documentation (`docs/architecture.md`), ADR-0001
-through ADR-0018 (`docs/adr/`), verified toolchain version pins with sources
-(`docs/toolchain-versions.md`), the MVP scope document, the milestone plan (this
+through ADR-0018 (`docs/adr/`), a verified toolchain baseline series with sourced,
+dated release evidence (`docs/toolchain-versions.md` — exact patch/minor pins are
+not yet finalized), the MVP scope document, the milestone plan (this
 file), the risk/gate register, the message catalog spec, and a minimal CI skeleton.
 
 **No application code, dependencies, runtimes, or Docker files are created in M0.**

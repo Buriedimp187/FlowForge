@@ -15,7 +15,8 @@ configuration exists yet. This repository currently contains:
 - the Architecture Decision Records behind it (`docs/adr/`),
 - the MVP scope, milestone plan, and risk/release-gate register
   (`docs/mvp-scope.md`, `docs/milestones.md`, `docs/risks-and-release-gates.md`),
-- verified toolchain version pins (`docs/toolchain-versions.md`), and
+- a verified toolchain baseline with sourced release evidence, pending exact
+  patch/minor confirmation at first use (`docs/toolchain-versions.md`), and
 - a minimal CI skeleton that validates the documentation structure itself.
 
 See `docs/milestones.md` for what comes next (M1: the pure execution engine) and
@@ -62,7 +63,7 @@ MIT — see [LICENSE](LICENSE).
 | [docs/mvp-scope.md](docs/mvp-scope.md) | What v0.1 includes, and what is explicitly deferred |
 | [docs/milestones.md](docs/milestones.md) | The M0–M7 implementation plan |
 | [docs/risks-and-release-gates.md](docs/risks-and-release-gates.md) | What must be demonstrated before release, and known open risks |
-| [docs/toolchain-versions.md](docs/toolchain-versions.md) | Verified, sourced, pinned runtime/tool versions |
+| [docs/toolchain-versions.md](docs/toolchain-versions.md) | Selected baseline series, sourced release evidence, and what remains to be pinned exactly |
 | [docs/message-catalog.md](docs/message-catalog.md) | Exact required wording for LLM usage/billing UI states |
 
 ## Contributing

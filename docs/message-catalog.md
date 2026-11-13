@@ -16,7 +16,7 @@ billing rules all vary, and FlowForge has no visibility into them). FlowForge th
 - and limits itself to three mutually exclusive, precisely worded UI states.
 
 See `docs/architecture.md` §9 (AI provider abstraction and BYOK) and
-`docs/adr/0013-ai-provider-port-and-byok.md` for the adapter contract that produces the
+`docs/adr/0013-ai-provider-port-byok.md` for the adapter contract that produces the
 values driving this catalog.
 
 ## The three catalog entries (exact wording, do not alter)

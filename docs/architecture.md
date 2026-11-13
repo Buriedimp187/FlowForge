@@ -33,7 +33,7 @@ every decision below):
 4. Designed for local deployment and persistent, durable data.
 5. Credentials and user-supplied API keys are handled securely.
 6. No execution of arbitrary user code without a real isolation strategy (which the
-   MVP does not yet provide — see §12 and `docs/mvp-scope.md`).
+   MVP does not yet provide — see `docs/mvp-scope.md`, "A Code node").
 7. No unnecessary dependencies or infrastructure.
 8. Suitable for a professional public GitHub portfolio.
 9. No SaaS billing, multi-tenancy, subscriptions, or managed cloud infrastructure.
@@ -116,7 +116,7 @@ it, so renaming a node's display name never breaks a workflow or its in-flight r
 
 ### 2.2 Save-time validation (backend-authoritative)
 
-- Exactly one **source node** (the trigger: Manual or Webhook — see §3.5 and
+- Exactly one **source node** (the trigger: Manual or Webhook — see §3.3 and
   `docs/mvp-scope.md`).
 - The graph is **acyclic**, and every node is reachable from the trigger.
 - Ports and node keys are valid and unique.

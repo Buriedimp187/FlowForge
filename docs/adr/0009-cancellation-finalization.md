@@ -26,7 +26,7 @@ outcome-unknown case.
 ## Consequences
 
 Every cancel/finalize/park/claim race has one defined, tested result (see the race
-matrix in `docs/architecture.md` §4), and a cancelled run can honestly coexist with
+matrix in `docs/architecture.md` §6.2a), and a cancelled run can honestly coexist with
 node outputs that had already completed before the cancel was observed — the UI
 states this explicitly rather than hiding it.
 

@@ -17,9 +17,14 @@ Verified at M0 (2026-11-13) against official/near-official sources:
   `docs/toolchain-versions.md` for the full reasoning: 3.13 exited regular bugfix
   maintenance in autumn 2026 and is now security-fix-only, so a new project starting
   today gains nothing from pinning to it over the still-actively-maintained 3.14
-  series). Exact patch is recorded as **unresolved-precision**, to be re-confirmed
-  against `python.org` immediately before `.python-version`/the Dockerfile are
-  written.
+  series). This is a **baseline-series** decision only. Exact patch is recorded as
+  **unresolved-precision**, to be re-confirmed against `python.org` immediately
+  before `.python-version`/the Dockerfile are written. **Open item carried into
+  M1:** 3.14's wheel compatibility with the eventual backend dependency set
+  (FastAPI, SQLAlchemy 2.x, psycopg 3, httpx/httpcore, etc.) has not been verified,
+  since no dependency has been selected or installed yet; this must be checked
+  before `uv.lock` is finalized, and a failure there is grounds to revisit this
+  baseline-series decision as a new, documented deviation.
 - **Node.js: 24 LTS ("Krypton")** — accepted as proposed, no deviation. Exact patch
   is unresolved-precision pending re-confirmation against `nodejs.org`.
 - **PostgreSQL: 17** (major version already settled by decision U7) — accepted,
