@@ -1,0 +1,26 @@
+# FlowForge backend dependency lock, M1 final correction pass.
+#
+# No `uv` is installed in this environment (docs/toolchain-versions.md),
+# so this plain pinned-requirements file is the project's lockfile until
+# `uv.lock` is introduced at a later milestone. Every line is an exact
+# version resolved and installed into an isolated project virtual
+# environment (backend/.venv, created with `python -m venv .venv`; never
+# the global interpreter), via:
+#
+#   python -m venv .venv
+#   .venv/bin/pip install jsonschema==4.26.0   # (or .venv\Scripts\pip.exe on Windows)
+#   .venv/bin/pip freeze > requirements-lock.txt
+#
+# Resolved and installed on: Python 3.15.2 (CPython, win_amd64) -- the
+# only interpreter available on the machine this work was done on.
+# Python 3.14 was NOT available to install into, so this file records
+# what was actually run, not what was assumed. See
+# docs/toolchain-versions.md, "JSON Schema dependency (jsonschema)" for
+# the full compatibility-evidence discussion, including why rpds-py's
+# published cp314-win_amd64 wheel is metadata-level evidence, not an
+# executed verification.
+attrs==26.1.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==2026.9.1

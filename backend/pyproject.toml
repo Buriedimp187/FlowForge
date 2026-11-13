@@ -11,15 +11,16 @@ license = { text = "MIT" }
 # the open item regarding its verification against this dependency set.
 requires-python = ">=3.13,<3.16"
 
-# M1 introduces NO third-party runtime dependencies: the domain model and
-# pure engine use only the standard library (dataclasses, enum, uuid,
-# types, typing). This is deliberate (engineering principle #7, "avoid
-# unnecessary dependencies") and also sidesteps any Python-3.14
-# wheel-availability question for M1 itself -- see
-# docs/toolchain-versions.md, "Compatibility with the eventual backend
-# dependency set is unverified", which remains an open item for M2+ when
-# FastAPI/SQLAlchemy/etc. are actually introduced.
-dependencies = []
+# M1's first (and, for this correction pass, only) third-party runtime
+# dependency: JSON Schema Draft 2020-12 validation for node parameters
+# (docs/architecture.md section 5, section 2.2), per the user-approved
+# decision to implement full JSON Schema rather than a hand-rolled
+# subset. Exact pin and the verification evidence behind it are recorded
+# in requirements-lock.txt (no uv.lock exists yet, see
+# docs/toolchain-versions.md) and in the M1 final-correction report.
+dependencies = [
+    "jsonschema==4.26.0",
+]
 
 [tool.pytest.ini_options]
 # Not used to run M1's tests (no pytest is installed; see the M1

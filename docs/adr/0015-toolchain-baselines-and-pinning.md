@@ -43,6 +43,18 @@ an explicit obligation to re-verify exact patch numbers at the moment each is fi
 consumed in configuration, rather than treating this document's numbers as
 permanently binding.
 
+## Revision history
+
+**First backend dependency (M1 final correction):** `jsonschema==4.26.0` was added
+to `backend/pyproject.toml`, following this ADR's pinning rules (exact version,
+recorded lock file). It was installed and exercised only in an isolated project
+virtual environment on the one Python interpreter available (3.15.2) — the
+open item above, Python 3.14's compatibility with the backend's eventual dependency
+set, is **still open** for this dependency specifically: wheel-availability and
+`Requires-Python` metadata evidence is favorable (see
+`docs/toolchain-versions.md`, "JSON Schema dependency"), but no code has actually
+been executed on a 3.14 interpreter, because none exists in this environment.
+
 ## Related
 
 `docs/toolchain-versions.md` (full verification detail, sources, and dates).

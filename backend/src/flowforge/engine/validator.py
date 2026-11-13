@@ -18,9 +18,12 @@ invalid connections.").
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+
 from flowforge.domain.graph import ExecutionMode, WorkflowDefinition
 from flowforge.domain.validation import ValidationIssue, ValidationResult
 from flowforge.engine.graph_utils import find_cycle, reachable_from
+from flowforge.engine.param_schema import validate_params as validate_params_against_schema
 from flowforge.engine.ports import CredentialDirectory, ExpressionSyntaxChecker, NodeTypeCatalog
 
 
@@ -28,14 +31,28 @@ def _iter_strings(value: object) -> list[str]:
     """Recursively collect every string leaf in a (JSON-shaped) params
     value, in a deterministic order, so expression syntax checking covers
     nested dict/list structures without needing a schema to know where
-    strings might be."""
+    strings might be.
+
+    M1 audit correction: this previously checked ``isinstance(value,
+    dict)``, which is ``False`` for a ``MappingProxyType`` -- exactly
+    what ``NodeDefinition.params``' nested objects are frozen into (see
+    flowforge.domain._immutable.deep_freeze). An expression inside a
+    nested object therefore never reached the string collector at all,
+    silently bypassing expression-syntax validation. Checking
+    ``collections.abc.Mapping``/``Sequence`` instead covers both plain
+    and frozen containers, present and future, uniformly. ``str`` is
+    itself a ``Sequence``, so it is checked (and handled) first;
+    ``bytes``/``bytearray`` are also ``Sequence`` but are not JSON
+    values at all (flowforge.domain._immutable rejects them earlier, at
+    construction) and are deliberately excluded here too, defensively.
+    """
     out: list[str] = []
     if isinstance(value, str):
         out.append(value)
-    elif isinstance(value, dict):
+    elif isinstance(value, Mapping):
         for v in value.values():
             out.extend(_iter_strings(v))
-    elif isinstance(value, (list, tuple)):
+    elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
         for v in value:
             out.extend(_iter_strings(v))
     return out
@@ -147,7 +164,7 @@ def validate(
         if spec is None:
             continue  # already reported as unknown_node_type; nothing further to check
 
-        for param_error in spec.validate_params(dict(node.params)):
+        for param_error in validate_params_against_schema(spec.params_schema, node.params):
             errors.append(ValidationIssue("invalid_parameter", param_error, node_key=node.key))
 
         if node.execution_mode is ExecutionMode.PER_ITEM and not spec.supports_per_item:

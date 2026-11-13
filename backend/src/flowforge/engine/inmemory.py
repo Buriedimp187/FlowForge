@@ -13,6 +13,7 @@ import re
 
 from flowforge.domain.node_run import NodeRun
 from flowforge.domain.node_types import NodeTypeSpec
+from flowforge.engine.param_schema import check_node_type_schema
 
 
 class InMemoryRunStore:
@@ -47,11 +48,19 @@ class InMemoryNodeTypeCatalog:
     """
 
     def __init__(self, specs: tuple[NodeTypeSpec, ...] = ()) -> None:
-        self._specs: dict[tuple[str, int], NodeTypeSpec] = {
-            (s.type, s.version): s for s in specs
-        }
+        self._specs: dict[tuple[str, int], NodeTypeSpec] = {}
+        for s in specs:
+            self.register(s)
 
     def register(self, spec: NodeTypeSpec) -> None:
+        # Validate the node type's own declared parameter schema here,
+        # at the point a type enters the catalog -- per the user-approved
+        # decision to use real JSON Schema (Draft 2020-12), a node type's
+        # author must be told immediately if their own schema is
+        # malformed, not only when some future workflow happens to
+        # reference it.
+        if spec.params_schema is not None:
+            check_node_type_schema(spec.params_schema)
         self._specs[(spec.type, spec.version)] = spec
 
     def get(self, type_name: str, type_version: int) -> NodeTypeSpec | None:

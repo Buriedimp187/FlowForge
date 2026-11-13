@@ -275,6 +275,74 @@ class ValidationTestCase(unittest.TestCase):
         self.assertFalse(result.is_valid)
         self.assertIn("invalid_expression_syntax", result.error_codes())
 
+    def test_invalid_expression_nested_inside_a_frozen_object_is_caught(self) -> None:
+        # M1 final-correction finding 4: NodeDefinition.params freezes
+        # nested dicts into MappingProxyType, which `isinstance(x, dict)`
+        # reports False for. A traversal that only checked `dict` (not
+        # `collections.abc.Mapping`) silently skipped every nested
+        # object, letting an invalid expression bypass validation simply
+        # by being placed one level deep. "generic" (support.py) has no
+        # params_schema, so this isolates the expression check from any
+        # schema error.
+        definition = WorkflowDefinition(
+            schema_version=1,
+            nodes=(
+                trigger_node(),
+                NodeDefinition(
+                    key="a",
+                    type="generic",
+                    type_version=1,
+                    params={"filters": {"name": "hello {{ unbalanced"}},
+                ),
+            ),
+            edges=(edge("e1", "trigger", "main", "a", "main"),),
+        )
+        # Sanity: the nested value really is frozen into a non-dict
+        # Mapping by the time validation runs.
+        import types
+
+        self.assertIsInstance(definition.node("a").params["filters"], types.MappingProxyType)
+        self.assertNotIsInstance(definition.node("a").params["filters"], dict)
+
+        result = self._validate(definition)
+        self.assertFalse(result.is_valid)
+        self.assertIn("invalid_expression_syntax", result.error_codes())
+
+    def test_invalid_expression_nested_inside_a_frozen_array_is_caught(self) -> None:
+        definition = WorkflowDefinition(
+            schema_version=1,
+            nodes=(
+                trigger_node(),
+                NodeDefinition(
+                    key="a",
+                    type="generic",
+                    type_version=1,
+                    params={"items": [{"label": "ok"}, {"label": "hello {{ unbalanced"}]},
+                ),
+            ),
+            edges=(edge("e1", "trigger", "main", "a", "main"),),
+        )
+        result = self._validate(definition)
+        self.assertFalse(result.is_valid)
+        self.assertIn("invalid_expression_syntax", result.error_codes())
+
+    def test_valid_expression_nested_two_levels_deep_passes(self) -> None:
+        definition = WorkflowDefinition(
+            schema_version=1,
+            nodes=(
+                trigger_node(),
+                NodeDefinition(
+                    key="a",
+                    type="generic",
+                    type_version=1,
+                    params={"outer": {"inner": {"value": "{{ trigger.body.name }}"}}},
+                ),
+            ),
+            edges=(edge("e1", "trigger", "main", "a", "main"),),
+        )
+        result = self._validate(definition)
+        self.assertTrue(result.is_valid, result.errors)
+
     def test_per_item_mode_rejected_when_node_type_does_not_support_it(self) -> None:
         # "if" (support.py's IF_NODE) does not declare supports_per_item.
         definition = WorkflowDefinition(

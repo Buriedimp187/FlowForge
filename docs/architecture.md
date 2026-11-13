@@ -414,7 +414,7 @@ in-memory state is a cache only, never the source of truth.
 ```
 NodeType:
   type, version
-  params_schema            # Pydantic model → JSON Schema; drives the UI form
+  params_schema            # a JSON Schema (Draft 2020-12) document; drives the UI form
   credential_types
   inputs[]:  {name, required}      outputs[]: {name}
   execution: batch | per_item(concurrency, continue_on_item_error)
@@ -426,6 +426,18 @@ Items are `{ json: {...} }`; binary data is explicitly deferred (not in v0.1). T
 engine renders node forms from `GET /node-types`'s JSON Schema, so the frontend never
 duplicates node knowledge — this is central to keeping the system extensible without
 a plugin marketplace (ADR-0007; not in v0.1 scope, see `docs/mvp-scope.md`).
+
+**`params_schema` is JSON Schema Draft 2020-12, explicitly** — never a bare
+`validate()` call that would let a library guess the draft from a schema's own
+`$schema` keyword (or silently default to an older draft when that keyword is
+absent). The backend validates both the schema itself (well-formedness) and every
+node's parameters against it at save time (§2.2); the backend remains the sole
+authoritative validation boundary — no parallel, custom parameter-validation system
+exists alongside it. A node type that declares no `params_schema` at all accepts any
+parameters; a node-type author who wants to reject unknown parameters declares
+`"additionalProperties": false` in their own schema, exactly as any JSON-Schema-based
+system requires. See `docs/toolchain-versions.md` for the exact validator library and
+version, and for the Python-3.14 compatibility-evidence discussion.
 
 `ctx` provides: the decrypted credential for *that node's own declared credential
 only*, the audited outbound HTTP client (§7), the redacting logger, a stable
@@ -534,7 +546,7 @@ billing is tracked separately and is *not* represented by `outcome`.
 |---|---|---|---|---|
 | `pure` | Re-execute | `cancelled`, known | `failed` (timeout), known; retryable per policy | `cancelled`, known |
 | `read` | Re-execute | `cancelled`, known | `failed` (timeout), known; retryable | `cancelled`, known |
-| `idempotent_write` | Re-execute with the same key | `cancelled`, **unknown** | `failed` (timeout), **unknown**; retryable with the same key | `cancelled`, **unknown** |
+| `idempotent_write` | Re-execute with the same key | `cancelled`, **unknown** | `retry_wait` (same key) while the retry budget remains; once exhausted, `failed`, **unknown**, and the run fails regardless of `on_error` — see the dedicated rule below | `cancelled`, **unknown** |
 | `unsafe_write`, not dispatched (live worker only; a crash can never prove this) | n/a | `cancelled`, known | `failed` (timeout), known; retry allowed | `cancelled`, known |
 | `unsafe_write`, dispatched or unprovable | `failed`, `outcome_unknown`, **unknown** | `failed`, `outcome_unknown`, **unknown** | `failed`, `outcome_unknown`, **unknown** | `failed`, `outcome_unknown`, **unknown** |
 
@@ -545,10 +557,36 @@ Rules:
 - If a reclaimer finds orphans **and** `cancel_requested_at` is set: `pure`/`read`
   resolve `cancelled` with no re-execute; `idempotent_write` resolves `cancelled`
   with unknown; `unsafe_write` follows the crash column (unknown).
+- **`idempotent_write` Node-timeout, resolved (this is the normative rule; it
+  replaces an earlier ambiguity between this paragraph and the general
+  "outcome_unknown from timeout fails the run" rule below, which is scoped to
+  `unsafe_write` and to `idempotent_write` only once its own retries are
+  exhausted — see ADR-0005's revision history for that clarification):
+  1. The idempotency key is **never regenerated** across retries of the same
+     logical operation (§6.4) — the retry is the same operation, retried.
+  2. An unknown outcome is never reported as `succeeded` merely because the write
+     is idempotent.
+  3. While the node's retry budget is not exhausted, an unknown-outcome timeout
+     writes `retry_wait` (non-terminal), **not** `failed` — downstream nodes
+     cannot execute, because readiness (§3.2) only proceeds once every upstream
+     node is terminal, and `retry_wait` is not terminal.
+  4. If a later attempt returns a **confirmed success**, the node completes
+     normally (`succeeded`, known) through the ordinary T3 path, and downstream
+     execution proceeds.
+  5. If a later attempt returns a **definitive failure** (no longer ambiguous),
+     it is handled by the ordinary retry/`on_error` rules for an ordinary
+     failure — this paragraph no longer applies once the outcome is no longer
+     unknown.
+  6. Once the retry budget is exhausted **with the outcome still unknown**, the
+     node becomes `failed`/`unknown` and the run fails **unconditionally**,
+     regardless of the node's `on_error` policy.
 - An `outcome_unknown` from **crash or timeout fails the run** — it drains in-flight
   nodes (U5: drain, don't cancel mid-flight, to avoid manufacturing further
   ambiguity), schedules nothing new, and ends `failed`, **ignoring `on_error`**. A
-  silently-continued unsafe write is exactly the hazard this closes.
+  silently-continued unsafe write is exactly the hazard this closes. For
+  `idempotent_write` specifically, this rule applies only once its own retry
+  budget is exhausted (see the dedicated rule immediately above) — not on the
+  first unknown-outcome timeout, which retries instead.
 - An `outcome_unknown` from **cancel or deadline** ends the run `cancelled` /
   `timed_out`, with `has_unknown_outcome = true` and the affected nodes listed; the UI
   shows a prominent "outcome unknown" badge.

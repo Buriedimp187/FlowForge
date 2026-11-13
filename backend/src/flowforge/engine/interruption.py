@@ -18,6 +18,21 @@ instructions, section F):
     "Ensure cancellation does not silently turn an unknown external
     outcome into a known outcome... Preserve the distinction between
     cancelled and failed with an unknown outcome."
+
+M1 final-correction history (user-approved resolution of the
+``idempotent_write``/Node-timeout ambiguity): docs/architecture.md
+section 6.2 previously carried a textual tension between its general
+"an outcome_unknown from crash or timeout fails the run" rule and its
+own ``idempotent_write``/Node-timeout matrix cell ("unknown; retryable
+with the same key"). The user has now explicitly approved a single,
+unambiguous rule for this case, implemented by
+:func:`resolve_idempotent_write_timeout` below: retry (into
+``retry_wait``, never ``succeeded``, with the same idempotency key)
+while the retry budget allows it, and fail the run unconditionally --
+regardless of the node's ``on_error`` policy -- only once that budget is
+exhausted with the outcome still unknown. See
+docs/architecture.md section 6.2 and ADR-0005 for the updated normative
+text.
 """
 
 from __future__ import annotations
@@ -27,7 +42,10 @@ from enum import Enum
 from typing import Optional
 
 from flowforge.domain.effects import EffectClass
+from flowforge.domain.graph import RetryPolicy
 from flowforge.domain.states import NodeRunStatus, Outcome
+from flowforge.engine.clock import Clock
+from flowforge.engine.retry import compute_backoff
 
 
 class InterruptionCause(str, Enum):
@@ -44,6 +62,7 @@ class InterruptionResolution:
     auto_retryable: bool
     error_code: Optional[str] = None
     forces_run_failure: bool = False
+    retry_at: Optional[float] = None
 
 
 def resolve_interruption(
@@ -92,6 +111,17 @@ def resolve_interruption(
         # is still genuinely unknown to us). Only the Node-timeout row's
         # text says "retryable with the same key" -- the Cancel row never
         # does, and CANCELLED is terminal regardless.
+        #
+        # NODE_TIMEOUT NOTE: the `auto_retryable=True` returned here is
+        # only an ELIGIBILITY signal, not the full approved state
+        # transition -- it does not know the retry budget, so it cannot
+        # decide between "go to retry_wait" and "exhausted, fail the
+        # run unconditionally". Real orchestration must use
+        # :func:`resolve_idempotent_write_timeout` instead, which is
+        # budget-aware and is the single authoritative implementation of
+        # the approved rule. This branch is kept only for API continuity
+        # with the simpler cause x class classification other effect
+        # classes use.
         status = NodeRunStatus.CANCELLED if is_cancel else NodeRunStatus.FAILED
         return InterruptionResolution(status=status, outcome=Outcome.UNKNOWN, auto_retryable=not is_cancel)
 
@@ -115,3 +145,67 @@ def resolve_interruption(
         )
 
     raise AssertionError(f"unhandled EffectClass: {effect_class}")  # pragma: no cover
+
+
+def resolve_idempotent_write_timeout(
+    *,
+    failures_after_this_one: int,
+    policy: RetryPolicy,
+    clock: Clock,
+) -> InterruptionResolution:
+    """The full, user-approved state machine for an ``idempotent_write``
+    node interrupted by ``NODE_TIMEOUT`` with an unknown outcome.
+
+    This is the authoritative implementation of the approved rule (see
+    the module docstring): unlike :func:`resolve_interruption`'s general
+    cause x class table, which reports only an eligibility signal for a
+    higher layer to combine with the ordinary retry budget, this
+    function performs that composition itself, because the exact
+    behavior here is now a specific, approved normative rule rather
+    than a general pattern shared with other effect classes:
+
+    - While ``failures_after_this_one < policy.max_attempts``: the node
+      goes to **`retry_wait`** (non-terminal, outcome ``unknown``, the
+      SAME idempotency key reused automatically on the next attempt --
+      ``flowforge.engine.idempotency`` never varies a key by attempt
+      number, so key stability holds without any special handling
+      here). Because `retry_wait` is non-terminal
+      (docs/architecture.md section 3.1), downstream nodes cannot
+      execute: readiness (``flowforge.engine.readiness``) only
+      proceeds once every upstream node is terminal. The node is never,
+      under any circumstance, written as `succeeded` by this function
+      -- an unknown outcome is not success (approved rule 3/8).
+    - Once ``failures_after_this_one >= policy.max_attempts``: the node
+      becomes **`failed`**, outcome ``unknown``, and
+      ``forces_run_failure=True`` **unconditionally** -- the run must
+      fail regardless of the node's ``on_error`` policy (approved rule
+      7). ``error_code='outcome_unknown_retries_exhausted'`` distinguishes
+      this from a definitive failure.
+
+    What this function does NOT decide, because they are the ordinary,
+    pre-existing engine flow and not special to this rule: a *later*
+    attempt (started via :func:`flowforge.domain.node_run.start_attempt`
+    from the `retry_wait` row this function produced) that returns a
+    confirmed success writes `succeeded` through the normal T3 path
+    (approved rule 5); one that returns a definitive, non-ambiguous
+    failure is handled by the ordinary :func:`flowforge.engine.retry.decide_retry`
+    /``on_error`` path, since its outcome is no longer unknown (approved
+    rule 6).
+    """
+    if failures_after_this_one < policy.max_attempts:
+        delay = compute_backoff(policy, failures_after_this_one)
+        return InterruptionResolution(
+            status=NodeRunStatus.RETRY_WAIT,
+            outcome=Outcome.UNKNOWN,
+            auto_retryable=True,
+            forces_run_failure=False,
+            retry_at=clock.now() + delay,
+        )
+
+    return InterruptionResolution(
+        status=NodeRunStatus.FAILED,
+        outcome=Outcome.UNKNOWN,
+        auto_retryable=False,
+        error_code="outcome_unknown_retries_exhausted",
+        forces_run_failure=True,
+    )

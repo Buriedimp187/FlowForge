@@ -50,6 +50,20 @@ trigger were added after identifying that an application upgrade mid-run could
 otherwise silently reclassify a node; per-item key derivation was added once the
 single `run_id:node_key` key was found insufficient for per-item operations.
 
+**`idempotent_write`/Node-timeout clarification (M1 final correction, user-approved):**
+an earlier M1 audit pass identified a textual conflict between this ADR's general
+"an outcome_unknown from crash or timeout fails the run" rule and the matrix's own
+`idempotent_write`/Node-timeout cell ("unknown; retryable with the same key"), and
+reported it rather than silently resolving it. The user has since approved an
+unambiguous rule, now normative in `docs/architecture.md` §6.2: an `idempotent_write`
+node whose outcome is unknown after a timeout goes to `retry_wait` (same key, never a
+new one, never reported as `succeeded`) while its retry budget remains; the run fails
+unconditionally, regardless of `on_error`, only once that budget is exhausted with the
+outcome still unknown. The general "fails the run" rule is therefore understood as
+applying to `unsafe_write` always, and to `idempotent_write` only once its own
+retries are exhausted. The pure engine implementation of this rule is
+`flowforge.engine.interruption.resolve_idempotent_write_timeout`.
+
 ## Related
 
 `docs/architecture.md` §5.2, §6; ADR-0004, ADR-0012, ADR-0013.

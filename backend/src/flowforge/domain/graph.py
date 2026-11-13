@@ -46,10 +46,19 @@ class RetryPolicy:
     backoff_max_s: float = 60.0
 
     def __post_init__(self) -> None:
+        # M1 final-correction finding 5: `isinstance(True, int)` is
+        # `True` in Python, so `max_attempts < 1` alone would silently
+        # accept `max_attempts=True` as if it were the integer 1. bool
+        # is rejected explicitly, before any numeric comparison.
+        if isinstance(self.max_attempts, bool) or not isinstance(self.max_attempts, int):
+            raise TypeError(f"max_attempts must be a plain int, got {self.max_attempts!r}")
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
+
         for name in ("backoff_base_s", "backoff_multiplier", "backoff_max_s"):
             value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"{name} must be a plain int or float, got {value!r}")
             if not math.isfinite(value):
                 raise ValueError(f"{name} must be a finite number, got {value!r}")
         if self.backoff_base_s < 0 or self.backoff_multiplier < 1 or self.backoff_max_s < 0:
@@ -88,8 +97,17 @@ class NodeDefinition:
             raise ValueError("NodeDefinition.type must be non-empty")
         if self.type_version < 1:
             raise ValueError("NodeDefinition.type_version must be >= 1")
-        if self.timeout_s is not None and not (self.timeout_s > 0):
-            raise ValueError("NodeDefinition.timeout_s must be > 0 when given")
+        if self.timeout_s is not None:
+            # M1 final-correction finding 5: `math.inf > 0` is True, so
+            # the previous `not (self.timeout_s > 0)` check silently
+            # accepted an infinite timeout. bool is also rejected
+            # explicitly first (isinstance(True, int) is True).
+            if isinstance(self.timeout_s, bool) or not isinstance(self.timeout_s, (int, float)):
+                raise TypeError(f"NodeDefinition.timeout_s must be a plain int or float, got {self.timeout_s!r}")
+            if not math.isfinite(self.timeout_s):
+                raise ValueError(f"NodeDefinition.timeout_s must be finite, got {self.timeout_s!r}")
+            if not self.timeout_s > 0:
+                raise ValueError("NodeDefinition.timeout_s must be > 0 when given")
         # Deep-frozen: see flowforge.domain._immutable. Mutating the
         # caller's original `params` dict (including a nested dict/list
         # inside it) after construction must not affect this object, and

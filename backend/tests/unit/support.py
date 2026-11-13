@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from flowforge.domain.effects import EffectClass
 from flowforge.domain.graph import Edge, NodeDefinition, WorkflowDefinition
-from flowforge.domain.node_types import NodeTypeSpec, ParamSpec
+from flowforge.domain.node_types import NodeTypeSpec
 from flowforge.domain.ports import InputPort, OutputPort
 from flowforge.engine.inmemory import (
     BalancedTemplateSyntaxChecker,
@@ -39,7 +39,11 @@ SET_NODE = NodeTypeSpec(
     is_trigger=False,
     inputs=(InputPort("main", required=True),),
     outputs=(OutputPort("main"),),
-    params=(ParamSpec("value", "string", required=False),),
+    params_schema={
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "additionalProperties": False,
+    },
     effect_class=EffectClass.PURE,
     supports_per_item=True,
 )
@@ -64,13 +68,34 @@ MERGE_NODE = NodeTypeSpec(
     effect_class=EffectClass.PURE,
 )
 
+GENERIC_NODE = NodeTypeSpec(
+    type="generic",
+    version=1,
+    is_trigger=False,
+    inputs=(InputPort("main", required=True),),
+    outputs=(OutputPort("main"),),
+    # No params_schema at all -- any params are accepted (see
+    # NodeTypeSpec.params_schema's docstring). Used to isolate
+    # expression-syntax-traversal tests from parameter-schema errors.
+    effect_class=EffectClass.PURE,
+)
+
 HTTP_NODE = NodeTypeSpec(
     type="http_request",
     version=1,
     is_trigger=False,
     inputs=(InputPort("main", required=True),),
     outputs=(OutputPort("main"), OutputPort("error")),
-    params=(ParamSpec("url", "string", required=True),),
+    params_schema={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "minLength": 1},
+            "method": {"type": "string", "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
+            "retry_safety": {"type": "string", "enum": ["auto", "safe_to_retry", "never_retry"]},
+        },
+        "required": ["url"],
+        "additionalProperties": False,
+    },
     credential_types=("http_bearer",),
     effect_class=EffectClass.UNSAFE_WRITE,  # the conservative default (ADR-0005)
     supports_per_item=True,
@@ -79,7 +104,7 @@ HTTP_NODE = NodeTypeSpec(
 
 def new_catalog() -> InMemoryNodeTypeCatalog:
     return InMemoryNodeTypeCatalog(
-        (MANUAL_TRIGGER, WEBHOOK_TRIGGER, SET_NODE, IF_NODE, MERGE_NODE, HTTP_NODE)
+        (MANUAL_TRIGGER, WEBHOOK_TRIGGER, SET_NODE, IF_NODE, MERGE_NODE, HTTP_NODE, GENERIC_NODE)
     )
 
 

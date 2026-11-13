@@ -10,6 +10,7 @@ this module and flowforge.domain, never the reverse.
 from __future__ import annotations
 
 import dataclasses
+import math
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, Optional
@@ -79,8 +80,13 @@ class NodeRun:
             raise ValueError("NodeRun.run_id and node_key must be non-empty")
         if self.attempt < 0 or self.failures < 0:
             raise ValueError("attempt and failures must be >= 0")
-        if self.retry_at is not None and self.retry_at < 0:
-            raise ValueError("NodeRun.retry_at must be >= 0 when given")
+        if self.retry_at is not None:
+            if isinstance(self.retry_at, bool) or not isinstance(self.retry_at, (int, float)):
+                raise TypeError(f"NodeRun.retry_at must be a plain int or float, got {self.retry_at!r}")
+            if not math.isfinite(self.retry_at):
+                raise ValueError(f"NodeRun.retry_at must be finite, got {self.retry_at!r}")
+            if self.retry_at < 0:
+                raise ValueError("NodeRun.retry_at must be >= 0 when given")
         # M1 audit correction: a plain `dict(self.output)` here was still
         # a mutable mapping reachable as `node_run.output` -- a frozen
         # dataclass only prevents *reassigning* the attribute, not

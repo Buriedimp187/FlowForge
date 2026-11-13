@@ -109,6 +109,62 @@ Sources: `https://www.postgresql.org/docs/release/17.12/` (primary evidence for
 this refresh); also consulted: `https://www.postgresql.org/docs/release/17.11/`,
 `https://www.postgresql.org/docs/release/17.10/`.
 
+## Backend dependencies
+
+Unlike the runtime baselines above, this section tracks an actual **installed and
+exercised** third-party Python package — the first one the backend has introduced.
+
+### JSON Schema dependency (`jsonschema`)
+
+M1's final correction pass replaced a small custom parameter validator with real
+**JSON Schema Draft 2020-12** validation (docs/architecture.md §5, §2.2; the
+user-approved decision behind ADR-0005's latest revision). The library:
+
+| | |
+|---|---|
+| Package | `jsonschema` |
+| Exact version | **4.26.0**, pinned in `backend/pyproject.toml` and `backend/requirements-lock.txt` |
+| Transitive dependencies (exact, from the same lock file) | `attrs==26.1.0`, `jsonschema-specifications==2025.9.1`, `referencing==0.37.0`, `rpds-py==2026.9.1` |
+| Validator class used | `jsonschema.Draft202012Validator`, explicitly — never a bare `jsonschema.validate()` call that would let the library infer the draft |
+| Installed into | An isolated project virtual environment, `backend/.venv` (created with `python -m venv .venv`; **never** the global/system Python installation, and nothing on `PATH` or in global `site-packages` was touched) |
+
+**Python 3.14 compatibility — what was, and was not, verified.**
+
+- **Not executed on Python 3.14.** No 3.14 interpreter is installed anywhere on the
+  machine this work was done on (confirmed via `py -0p` and a `winget list` query,
+  which show only Python 3.15.2). Installing a new Python interpreter was judged out
+  of scope for a dependency-verification task and was not done. The isolated venv
+  above was therefore created with, and every test below was actually run on,
+  **Python 3.15.2** (CPython, win_amd64) — the only interpreter available.
+- **What was verified instead, as genuine (not fabricated) evidence:** the PyPI JSON
+  API (`https://pypi.org/pypi/rpds-py/2026.9.1/json`) was queried directly and shows
+  that `rpds-py` 2026.9.1 — the one dependency in this chain written partly in Rust
+  and therefore the one actually at risk of lacking 3.14 support — **publishes a
+  prebuilt binary wheel for `cp314-cp314-win_amd64`**, alongside `cp311` through
+  `cp315` and every other supported platform. `rpds-py`'s own declared
+  `Requires-Python` is `>=3.11`; `jsonschema`'s is `>=3.10`. Both ranges, and the
+  published wheel, are consistent with Python 3.14 support.
+- **This is metadata/wheel-availability evidence, not an executed-on-3.14
+  verification**, and it is reported as exactly that distinction — not blurred into
+  a claim that compatibility was "verified" in the stronger sense. Re-running
+  `backend/requirements-lock.txt`'s install and the full backend test suite on an
+  actual Python 3.14 interpreter, once one is available in this environment, remains
+  an **open item** and should happen before this dependency is treated as fully
+  verified for production use.
+- `jsonschema.Draft202012Validator` was functionally exercised (not merely imported)
+  in this same Python-3.15.2 venv: schema well-formedness checks
+  (`check_schema`), instance validation with nested objects/arrays, `required`,
+  `additionalProperties`, `enum`, numeric/string constraints, `oneOf`/`anyOf`/`allOf`,
+  `if`/`then`/`else`, and a `$ref`/`$defs` reference — see
+  `backend/tests/unit/test_param_schema.py`.
+
+### No lockfile tool (`uv`) yet
+
+As before (M0), `uv` is not installed, so `backend/requirements-lock.txt` — a plain
+`pip freeze` output from the isolated venv above — is the project's dependency lock
+until `uv.lock` is introduced at a later milestone. It is regenerated the same way
+(`pip install` into a fresh venv, then `pip freeze`) whenever a dependency changes.
+
 ## Pinning rules that apply once any of the above is used in configuration
 
 1. **No floating tags.** `latest`, `lts`, `17`, `24`, bare major/minor tags, and any
