@@ -175,37 +175,55 @@ class CancellationTransitionTestCase(unittest.TestCase):
         self.assertEqual(resolution.status, NodeRunStatus.FAILED)
         self.assertEqual(resolution.outcome, Outcome.UNKNOWN)
 
-    def test_node_timeout_is_auto_retry_eligible_for_pure_read_idempotent(self) -> None:
+    def test_node_timeout_is_auto_retry_eligible_for_pure_read(self) -> None:
         # Unlike CANCEL, the Node-timeout column's text explicitly says
-        # "retryable" for these three classes -- auto_retryable=True here
+        # "retryable" for these classes -- auto_retryable=True here
         # means "eligible for the ordinary retry-budget decision"
         # (flowforge.engine.retry.decide_retry), not an unconditional
-        # retry.
-        for effect_class in (EffectClass.PURE, EffectClass.READ, EffectClass.IDEMPOTENT_WRITE):
+        # retry. idempotent_write/NODE_TIMEOUT is deliberately excluded
+        # from this table-driven loop: that combination has no
+        # classification of its own any more (M1 final consistency fix)
+        # -- see test_idempotent_write_timeout.py for its dedicated,
+        # budget-aware coverage.
+        for effect_class in (EffectClass.PURE, EffectClass.READ):
             with self.subTest(effect_class=effect_class):
                 resolution = resolve_interruption(effect_class, InterruptionCause.NODE_TIMEOUT)
                 self.assertTrue(resolution.auto_retryable)
                 self.assertEqual(resolution.status, NodeRunStatus.FAILED)
 
-    def test_idempotent_write_node_timeout_does_not_force_run_failure(self) -> None:
-        # ARCHITECTURE AMBIGUITY (reported, not silently resolved -- see
-        # the M1 audit-correction report): docs/architecture.md section
-        # 6.2 has a general rule ("An outcome_unknown from crash or
-        # timeout fails the run") that textually conflicts with the same
-        # section's idempotent_write/Node-timeout matrix cell ("unknown;
-        # retryable with the same key"), which implies the run does NOT
-        # immediately fail. This test documents the conservative,
-        # unchanged interpretation this codebase has used since the
-        # initial M1 implementation (the specific per-class matrix cell
-        # governs over the general prose rule, whose own stated rationale
-        # -- "a silently-continued UNSAFE WRITE is exactly the hazard
-        # this closes" -- is about unsafe_write specifically). This is a
-        # DOCUMENTED, not silently chosen, interpretation; a future
-        # architecture clarification may change it.
-        resolution = resolve_interruption(EffectClass.IDEMPOTENT_WRITE, InterruptionCause.NODE_TIMEOUT)
-        self.assertFalse(resolution.forces_run_failure)
-        self.assertTrue(resolution.auto_retryable)
-        self.assertEqual(resolution.outcome, Outcome.UNKNOWN)
+    def test_idempotent_write_node_timeout_without_retry_context_is_rejected(self) -> None:
+        # M1 final consistency fix (second audit pass): the earlier
+        # ambiguity here was not a documented interpretation choice -- it
+        # was a live contradiction between this function's own
+        # classification and the dedicated, budget-aware
+        # resolve_idempotent_write_timeout(). resolve_interruption() must
+        # not be usable to reach a terminal FAILED resolution for this
+        # combination at all; calling it without retry context raises
+        # rather than silently falling back to the old classification.
+        with self.assertRaises(TypeError):
+            resolve_interruption(EffectClass.IDEMPOTENT_WRITE, InterruptionCause.NODE_TIMEOUT)
+
+    def test_idempotent_write_node_timeout_delegates_to_the_authoritative_resolver(self) -> None:
+        # With retry context supplied, resolve_interruption() must agree
+        # exactly with resolve_idempotent_write_timeout() -- there is one
+        # decision path, not two.
+        from flowforge.domain.graph import RetryPolicy
+        from flowforge.engine.clock import FakeClock
+        from flowforge.engine.interruption import resolve_idempotent_write_timeout
+
+        policy = RetryPolicy(max_attempts=3)
+        clock = FakeClock(start=0.0)
+        via_generic = resolve_interruption(
+            EffectClass.IDEMPOTENT_WRITE,
+            InterruptionCause.NODE_TIMEOUT,
+            failures_after_this_one=1,
+            policy=policy,
+            clock=clock,
+        )
+        via_dedicated = resolve_idempotent_write_timeout(failures_after_this_one=1, policy=policy, clock=clock)
+        self.assertEqual(via_generic, via_dedicated)
+        self.assertEqual(via_generic.status, NodeRunStatus.RETRY_WAIT)
+        self.assertFalse(via_generic.forces_run_failure)
 
 
 class EffectClassImmutabilityTestCase(unittest.TestCase):

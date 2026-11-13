@@ -64,6 +64,17 @@ applying to `unsafe_write` always, and to `idempotent_write` only once its own
 retries are exhausted. The pure engine implementation of this rule is
 `flowforge.engine.interruption.resolve_idempotent_write_timeout`.
 
+**Consistency fix (M1 final consistency fix, second audit pass):** the initial
+implementation of the rule above left `resolve_interruption()`'s own, simpler
+cause x effect-class classification still able to return a terminal `FAILED`
+resolution for `idempotent_write`/`NODE_TIMEOUT` without knowing the retry
+budget — a live contradiction with `resolve_idempotent_write_timeout`'s
+`retry_wait`-while-budget-remains behavior if a caller used the generic
+function instead of the dedicated one. `resolve_interruption()` no longer
+classifies that combination itself: it requires the caller to supply retry
+context and delegates to `resolve_idempotent_write_timeout`, so there is one
+authoritative decision path, not two that could disagree.
+
 ## Related
 
 `docs/architecture.md` §5.2, §6; ADR-0004, ADR-0012, ADR-0013.

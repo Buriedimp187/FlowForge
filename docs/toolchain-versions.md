@@ -172,9 +172,16 @@ until `uv.lock` is introduced at a later milestone. It is regenerated the same w
    or lockfiles exist (M1+).
 2. **Image references add a digest** (`@sha256:...`) in addition to the version
    tag, once Dockerfiles are written (M4).
-3. **Lockfiles are the actual pin** for application dependencies: `uv.lock` for the
-   backend, `package-lock.json` for the frontend. Neither exists yet, since no
-   dependency has been installed.
+3. **Lockfiles are the actual pin** for application dependencies. For the frontend,
+   that is still `package-lock.json`, which does not exist yet (no frontend
+   dependency has been installed). For the backend, `uv` is not installed (see
+   "No lockfile tool (`uv`) yet" below), so `uv.lock` does not exist either — but
+   the backend is no longer dependency-free: `backend/pyproject.toml` is the
+   authoritative declaration of what the backend depends on (currently
+   `jsonschema==4.26.0`, an abstract, unpinned requirement), and
+   `backend/requirements-lock.txt` (a plain `pip freeze` from the isolated
+   `backend/.venv`) is the actual exact-version pin used for the current
+   install-and-test workflow until `uv.lock` replaces it.
 4. **CI third-party actions are pinned to a commit SHA**, not a tag (see
    `.github/workflows/ci.yml` and `docs/adr/0015-toolchain-baselines-and-pinning.md`).
 5. **Re-verification is required, not optional**, at each milestone that first

@@ -50,13 +50,43 @@ class TimeoutWithUnknownOutcomeTestCase(unittest.TestCase):
                 )
                 self.assertNotEqual(resolution.status, NodeRunStatus.SUCCEEDED)
 
-    def test_old_resolve_interruption_classification_is_unaffected(self) -> None:
-        # The simpler, non-budget-aware classification is kept for API
-        # continuity (see the module docstring) and still reports the
-        # same eligibility signal as before this correction.
-        resolution = resolve_interruption(EffectClass.IDEMPOTENT_WRITE, InterruptionCause.NODE_TIMEOUT)
-        self.assertTrue(resolution.auto_retryable)
+    def test_generic_resolver_rejects_the_combination_without_retry_context(self) -> None:
+        # M1 final consistency fix: resolve_interruption() must not be
+        # able to classify an idempotent_write NODE_TIMEOUT on its own --
+        # that was the live contradiction an independent audit of
+        # commit a4ef853 found (it could return a terminal FAILED
+        # resolution while this function's own budget-aware logic would
+        # still say retry_wait). Calling it without retry context raises.
+        with self.assertRaises(TypeError):
+            resolve_interruption(EffectClass.IDEMPOTENT_WRITE, InterruptionCause.NODE_TIMEOUT)
+
+    def test_generic_resolver_cannot_produce_a_terminal_result_while_budget_remains(self) -> None:
+        # With retry context supplied, resolve_interruption() delegates
+        # to this module's single authoritative decision path and can
+        # therefore never disagree with it.
+        resolution = resolve_interruption(
+            EffectClass.IDEMPOTENT_WRITE,
+            InterruptionCause.NODE_TIMEOUT,
+            failures_after_this_one=1,
+            policy=self.policy,
+            clock=self.clock,
+        )
+        self.assertEqual(resolution.status, NodeRunStatus.RETRY_WAIT)
+        self.assertFalse(is_terminal(resolution.status))
         self.assertFalse(resolution.forces_run_failure)
+
+    def test_generic_resolver_agrees_on_exhaustion_too(self) -> None:
+        exhausted_policy = RetryPolicy(max_attempts=1)
+        resolution = resolve_interruption(
+            EffectClass.IDEMPOTENT_WRITE,
+            InterruptionCause.NODE_TIMEOUT,
+            failures_after_this_one=1,
+            policy=exhausted_policy,
+            clock=self.clock,
+        )
+        self.assertEqual(resolution.status, NodeRunStatus.FAILED)
+        self.assertTrue(resolution.forces_run_failure)
+        self.assertEqual(resolution.error_code, "outcome_unknown_retries_exhausted")
 
 
 class IdempotencyKeyStabilityAcrossRetriesTestCase(unittest.TestCase):
