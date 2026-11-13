@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import unittest
 
-from flowforge.domain.graph import Edge, NodeDefinition, WorkflowDefinition
+from flowforge.domain.graph import Edge, ExecutionMode, NodeDefinition, WorkflowDefinition
 from flowforge.engine.validator import validate
 from tests.unit.support import (
     branching_merge_workflow,
@@ -274,6 +274,45 @@ class ValidationTestCase(unittest.TestCase):
         result = self._validate(definition)
         self.assertFalse(result.is_valid)
         self.assertIn("invalid_expression_syntax", result.error_codes())
+
+    def test_per_item_mode_rejected_when_node_type_does_not_support_it(self) -> None:
+        # "if" (support.py's IF_NODE) does not declare supports_per_item.
+        definition = WorkflowDefinition(
+            schema_version=1,
+            nodes=(
+                trigger_node(),
+                NodeDefinition(key="branch", type="if", type_version=1, execution_mode=ExecutionMode.PER_ITEM),
+            ),
+            edges=(edge("e1", "trigger", "main", "branch", "main"),),
+        )
+        result = self._validate(definition)
+        self.assertFalse(result.is_valid)
+        self.assertIn("per_item_not_supported", result.error_codes())
+
+    def test_per_item_mode_accepted_when_node_type_supports_it(self) -> None:
+        # "set" (support.py's SET_NODE) declares supports_per_item=True.
+        definition = WorkflowDefinition(
+            schema_version=1,
+            nodes=(
+                trigger_node(),
+                NodeDefinition(key="a", type="set", type_version=1, execution_mode=ExecutionMode.PER_ITEM),
+            ),
+            edges=(edge("e1", "trigger", "main", "a", "main"),),
+        )
+        result = self._validate(definition)
+        self.assertTrue(result.is_valid, result.errors)
+
+    def test_batch_mode_is_always_accepted_regardless_of_per_item_support(self) -> None:
+        definition = WorkflowDefinition(
+            schema_version=1,
+            nodes=(
+                trigger_node(),
+                NodeDefinition(key="branch", type="if", type_version=1, execution_mode=ExecutionMode.BATCH),
+            ),
+            edges=(edge("e1", "trigger", "main", "branch", "main"),),
+        )
+        result = self._validate(definition)
+        self.assertTrue(result.is_valid, result.errors)
 
     def test_validation_is_deterministic(self) -> None:
         definition = branching_merge_workflow()

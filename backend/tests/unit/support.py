@@ -125,6 +125,27 @@ def linear_workflow() -> WorkflowDefinition:
     )
 
 
+def merge_with_unconnected_required_port_workflow() -> WorkflowDefinition:
+    """trigger -> set_a --optional_in--> joiner
+
+    ``joiner`` (a Merge-shaped node) declares ``required_in`` as
+    required, but no edge in this definition targets it at all --
+    unlike ``branching_merge_workflow``, where both of Merge's ports are
+    wired and only one *fires* at runtime. This is the exact shape of
+    the M1 audit finding: a required port with zero connected edges
+    must not be silently treated as satisfied just because some other,
+    optional, connected port received data.
+    """
+    return WorkflowDefinition(
+        schema_version=1,
+        nodes=(trigger_node(), set_node("set_a"), merge_node("joiner")),
+        edges=(
+            edge("e1", "trigger", "main", "set_a", "main"),
+            edge("e2", "set_a", "main", "joiner", "optional_in"),
+        ),
+    )
+
+
 def branching_merge_workflow() -> WorkflowDefinition:
     """trigger -> if -> (true -> set_true, false -> set_false) -> merge
 

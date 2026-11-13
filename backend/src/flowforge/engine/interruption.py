@@ -61,31 +61,51 @@ def resolve_interruption(
     (unprovable) means the conservative "may have been sent" case
     applies, per the architecture's "whenever dispatch cannot be
     disproven" rule.
+
+    ``auto_retryable`` meaning (M1 audit correction): the architecture's
+    section 6.2 matrix uses the word "retryable" ONLY in the "Node
+    timeout" column -- never in the "Cancel" column, for any effect
+    class. ``CANCELLED`` is itself one of the four terminal statuses
+    (section 3.1); a cancelled node is DONE, not a candidate for
+    automatic re-execution. A prior version of this function set
+    ``auto_retryable=True`` for CANCEL across pure/read/idempotent_write,
+    which would have let a user's cancellation accidentally trigger
+    automatic re-execution. ``auto_retryable`` is therefore unconditionally
+    ``False`` whenever ``cause is InterruptionCause.CANCEL`` -- it is
+    meaningful only for ``NODE_TIMEOUT``, where it signals *eligibility*
+    for the ordinary retry-budget decision in ``flowforge.engine.retry``
+    (not an unconditional retry).
     """
-    # pure / read: both causes resolve to a KNOWN outcome, always
-    # auto-retryable. The *status* differs by cause (cancel -> CANCELLED,
-    # timeout -> FAILED), matching the architecture's table exactly.
+    is_cancel = cause is InterruptionCause.CANCEL
+
+    # pure / read: both causes resolve to a KNOWN outcome. The *status*
+    # differs by cause (cancel -> CANCELLED, timeout -> FAILED), matching
+    # the architecture's table exactly. Only a NODE_TIMEOUT outcome is
+    # ever retry-eligible.
     if effect_class in (EffectClass.PURE, EffectClass.READ):
-        status = NodeRunStatus.CANCELLED if cause is InterruptionCause.CANCEL else NodeRunStatus.FAILED
-        return InterruptionResolution(status=status, outcome=Outcome.KNOWN, auto_retryable=True)
+        status = NodeRunStatus.CANCELLED if is_cancel else NodeRunStatus.FAILED
+        return InterruptionResolution(status=status, outcome=Outcome.KNOWN, auto_retryable=not is_cancel)
 
     if effect_class is EffectClass.IDEMPOTENT_WRITE:
         # The architecture marks both causes UNKNOWN for this class (the
         # user asserted repeatability, but an in-flight write's outcome
-        # is still genuinely unknown to us) -- yet still auto-retryable
-        # "with the same key" per the architecture text.
-        status = NodeRunStatus.CANCELLED if cause is InterruptionCause.CANCEL else NodeRunStatus.FAILED
-        return InterruptionResolution(status=status, outcome=Outcome.UNKNOWN, auto_retryable=True)
+        # is still genuinely unknown to us). Only the Node-timeout row's
+        # text says "retryable with the same key" -- the Cancel row never
+        # does, and CANCELLED is terminal regardless.
+        status = NodeRunStatus.CANCELLED if is_cancel else NodeRunStatus.FAILED
+        return InterruptionResolution(status=status, outcome=Outcome.UNKNOWN, auto_retryable=not is_cancel)
 
     if effect_class is EffectClass.UNSAFE_WRITE:
         if dispatched is False:
             # Provably nothing was sent: safe to treat as known, exactly
-            # like pure/read.
-            status = NodeRunStatus.CANCELLED if cause is InterruptionCause.CANCEL else NodeRunStatus.FAILED
-            return InterruptionResolution(status=status, outcome=Outcome.KNOWN, auto_retryable=True)
+            # like pure/read -- including the same cancel-is-never-
+            # retryable rule.
+            status = NodeRunStatus.CANCELLED if is_cancel else NodeRunStatus.FAILED
+            return InterruptionResolution(status=status, outcome=Outcome.KNOWN, auto_retryable=not is_cancel)
 
         # dispatched True, or unprovable (None): the conservative,
-        # mandatory case. NEVER "cancelled", NEVER auto-retried.
+        # mandatory case. NEVER "cancelled", NEVER auto-retried, for
+        # either cause.
         return InterruptionResolution(
             status=NodeRunStatus.FAILED,
             outcome=Outcome.UNKNOWN,

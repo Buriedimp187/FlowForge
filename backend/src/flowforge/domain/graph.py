@@ -6,10 +6,12 @@ split), section 5 (the node contract), and ADR-0006 (immutable versions).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
-from types import MappingProxyType
 from typing import Any, Mapping
+
+from flowforge.domain._immutable import deep_freeze
 
 
 class OnErrorPolicy(str, Enum):
@@ -46,6 +48,10 @@ class RetryPolicy:
     def __post_init__(self) -> None:
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
+        for name in ("backoff_base_s", "backoff_multiplier", "backoff_max_s"):
+            value = getattr(self, name)
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number, got {value!r}")
         if self.backoff_base_s < 0 or self.backoff_multiplier < 1 or self.backoff_max_s < 0:
             raise ValueError("backoff parameters must be non-negative (multiplier >= 1)")
 
@@ -80,7 +86,15 @@ class NodeDefinition:
             raise ValueError("NodeDefinition.key must be non-empty")
         if not self.type:
             raise ValueError("NodeDefinition.type must be non-empty")
-        object.__setattr__(self, "params", MappingProxyType(dict(self.params)))
+        if self.type_version < 1:
+            raise ValueError("NodeDefinition.type_version must be >= 1")
+        if self.timeout_s is not None and not (self.timeout_s > 0):
+            raise ValueError("NodeDefinition.timeout_s must be > 0 when given")
+        # Deep-frozen: see flowforge.domain._immutable. Mutating the
+        # caller's original `params` dict (including a nested dict/list
+        # inside it) after construction must not affect this object, and
+        # mutating through `self.params` must not be possible at all.
+        object.__setattr__(self, "params", deep_freeze(dict(self.params)))
 
 
 @dataclass(frozen=True)
@@ -119,6 +133,18 @@ class WorkflowDefinition:
     edges: tuple[Edge, ...]
 
     def __post_init__(self) -> None:
+        if self.schema_version < 1:
+            raise ValueError("WorkflowDefinition.schema_version must be >= 1")
+        # Normalize: a caller may pass a list (or any other sequence) for
+        # either field; tuple-ify defensively so (a) the stored value is
+        # genuinely immutable, not just type-hinted as a tuple, and
+        # (b) a caller mutating their original list afterwards cannot
+        # affect this object (M1 audit correction -- a frozen dataclass
+        # field typed `tuple[...]` was previously trusted to already BE a
+        # tuple, which nothing enforced).
+        object.__setattr__(self, "nodes", tuple(self.nodes))
+        object.__setattr__(self, "edges", tuple(self.edges))
+
         keys = [n.key for n in self.nodes]
         if len(keys) != len(set(keys)):
             dupes = sorted({k for k in keys if keys.count(k) > 1})

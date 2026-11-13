@@ -6,6 +6,7 @@ section 4, plus the pure cancellation rules from section F.
 
 from __future__ import annotations
 
+import dataclasses
 import unittest
 
 from flowforge.domain.effects import EffectClass
@@ -114,24 +115,33 @@ class CancellationTransitionTestCase(unittest.TestCase):
         resolution = resolve_interruption(EffectClass.PURE, InterruptionCause.CANCEL)
         self.assertEqual(resolution.status, NodeRunStatus.CANCELLED)
         self.assertEqual(resolution.outcome, Outcome.KNOWN)
-        self.assertTrue(resolution.auto_retryable)
+        # M1 audit correction: CANCELLED is terminal (section 3.1) -- a
+        # user cancellation must never be auto-retryable, for any effect
+        # class. The architecture's "retryable" wording appears only in
+        # the Node-timeout column, never the Cancel column.
+        self.assertFalse(resolution.auto_retryable)
 
     def test_read_cancel_is_known_and_cancelled(self) -> None:
         resolution = resolve_interruption(EffectClass.READ, InterruptionCause.CANCEL)
         self.assertEqual(resolution.status, NodeRunStatus.CANCELLED)
         self.assertEqual(resolution.outcome, Outcome.KNOWN)
+        self.assertFalse(resolution.auto_retryable)
 
     def test_idempotent_write_cancel_is_unknown_but_still_cancelled(self) -> None:
         resolution = resolve_interruption(EffectClass.IDEMPOTENT_WRITE, InterruptionCause.CANCEL)
         self.assertEqual(resolution.status, NodeRunStatus.CANCELLED)
         self.assertEqual(resolution.outcome, Outcome.UNKNOWN)
-        self.assertTrue(resolution.auto_retryable)  # "retry allowed with the same key"
+        # The "retry allowed with the same key" wording in
+        # docs/architecture.md section 6.2 applies to the Node-timeout
+        # row only, not Cancel -- a cancelled node is terminal and is
+        # never auto-retried.
+        self.assertFalse(resolution.auto_retryable)
 
     def test_unsafe_write_cancel_not_dispatched_is_known_and_cancelled(self) -> None:
         resolution = resolve_interruption(EffectClass.UNSAFE_WRITE, InterruptionCause.CANCEL, dispatched=False)
         self.assertEqual(resolution.status, NodeRunStatus.CANCELLED)
         self.assertEqual(resolution.outcome, Outcome.KNOWN)
-        self.assertTrue(resolution.auto_retryable)
+        self.assertFalse(resolution.auto_retryable)
 
     def test_unsafe_write_cancel_dispatched_is_unknown_and_failed_not_cancelled(self) -> None:
         # This is the central safety property of section F: an
@@ -165,6 +175,38 @@ class CancellationTransitionTestCase(unittest.TestCase):
         self.assertEqual(resolution.status, NodeRunStatus.FAILED)
         self.assertEqual(resolution.outcome, Outcome.UNKNOWN)
 
+    def test_node_timeout_is_auto_retry_eligible_for_pure_read_idempotent(self) -> None:
+        # Unlike CANCEL, the Node-timeout column's text explicitly says
+        # "retryable" for these three classes -- auto_retryable=True here
+        # means "eligible for the ordinary retry-budget decision"
+        # (flowforge.engine.retry.decide_retry), not an unconditional
+        # retry.
+        for effect_class in (EffectClass.PURE, EffectClass.READ, EffectClass.IDEMPOTENT_WRITE):
+            with self.subTest(effect_class=effect_class):
+                resolution = resolve_interruption(effect_class, InterruptionCause.NODE_TIMEOUT)
+                self.assertTrue(resolution.auto_retryable)
+                self.assertEqual(resolution.status, NodeRunStatus.FAILED)
+
+    def test_idempotent_write_node_timeout_does_not_force_run_failure(self) -> None:
+        # ARCHITECTURE AMBIGUITY (reported, not silently resolved -- see
+        # the M1 audit-correction report): docs/architecture.md section
+        # 6.2 has a general rule ("An outcome_unknown from crash or
+        # timeout fails the run") that textually conflicts with the same
+        # section's idempotent_write/Node-timeout matrix cell ("unknown;
+        # retryable with the same key"), which implies the run does NOT
+        # immediately fail. This test documents the conservative,
+        # unchanged interpretation this codebase has used since the
+        # initial M1 implementation (the specific per-class matrix cell
+        # governs over the general prose rule, whose own stated rationale
+        # -- "a silently-continued UNSAFE WRITE is exactly the hazard
+        # this closes" -- is about unsafe_write specifically). This is a
+        # DOCUMENTED, not silently chosen, interpretation; a future
+        # architecture clarification may change it.
+        resolution = resolve_interruption(EffectClass.IDEMPOTENT_WRITE, InterruptionCause.NODE_TIMEOUT)
+        self.assertFalse(resolution.forces_run_failure)
+        self.assertTrue(resolution.auto_retryable)
+        self.assertEqual(resolution.outcome, Outcome.UNKNOWN)
+
 
 class EffectClassImmutabilityTestCase(unittest.TestCase):
     def test_effect_class_set_on_first_attempt(self) -> None:
@@ -177,10 +219,15 @@ class EffectClassImmutabilityTestCase(unittest.TestCase):
 
     def test_effect_class_preserved_across_retries_even_if_reclassified(self) -> None:
         first, _ = start_attempt(None, run_id="r1", node_key="n1", resolved_effect_class=EffectClass.READ)
+        # A real retry can only be started from `retry_wait` (T3 writes
+        # that status before any later T2 may run again) -- simulate
+        # that transition explicitly rather than restarting a `running`
+        # record directly, which start_attempt() must reject.
+        waiting = dataclasses.replace(first, status=NodeRunStatus.RETRY_WAIT, retry_at=10.0)
         # Simulate a later attempt where the (hypothetical) application
         # code would now classify this node differently.
         second, drift = start_attempt(
-            first, run_id="r1", node_key="n1", resolved_effect_class=EffectClass.UNSAFE_WRITE
+            waiting, run_id="r1", node_key="n1", resolved_effect_class=EffectClass.UNSAFE_WRITE
         )
         self.assertEqual(second.effect_class, EffectClass.READ)  # unchanged
         self.assertTrue(drift)
@@ -188,7 +235,8 @@ class EffectClassImmutabilityTestCase(unittest.TestCase):
 
     def test_effect_class_unchanged_when_consistent(self) -> None:
         first, _ = start_attempt(None, run_id="r1", node_key="n1", resolved_effect_class=EffectClass.PURE)
-        second, drift = start_attempt(first, run_id="r1", node_key="n1", resolved_effect_class=EffectClass.PURE)
+        waiting = dataclasses.replace(first, status=NodeRunStatus.RETRY_WAIT, retry_at=10.0)
+        second, drift = start_attempt(waiting, run_id="r1", node_key="n1", resolved_effect_class=EffectClass.PURE)
         self.assertEqual(second.effect_class, EffectClass.PURE)
         self.assertFalse(drift)
 

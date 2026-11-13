@@ -9,6 +9,25 @@ IF, ...) is explicitly M3 scope (docs/milestones.md); M1 only needs the
 See flowforge.engine.ports.NodeTypeCatalog for the lookup interface, and
 flowforge.engine.inmemory.InMemoryNodeTypeCatalog for a minimal in-memory
 implementation used by tests -- not a production registry.
+
+M1 audit note on ``ParamSpec``/``validate_params`` (read before changing
+either): docs/architecture.md section 5 describes a node type's
+``params_schema`` as "JSON Schema". ``ParamSpec`` is explicitly NOT a
+JSON Schema implementation and must never be described as one -- it
+checks only required-key presence and a primitive type tag (`string` /
+`number` / `integer` / `boolean` / `object` / `array`), nothing else
+(no `enum`, `pattern`, `minimum`/`maximum`, nested object/array
+sub-schemas, `oneOf`/`anyOf`, etc.). A real JSON Schema validator was
+considered for this correction pass and deliberately NOT added: the
+obvious library (`jsonschema` on PyPI) could not be verified compatible
+with the project's selected Python 3.14 baseline (ADR-0015), because
+Python 3.14 is not installed anywhere this work was done, and
+installing a third-party package or a new Python version was out of
+scope for this correction (and would violate the instruction not to
+install anything globally or alter the environment without being asked).
+Full JSON Schema validation therefore remains an explicitly reported
+limitation, not a silently narrowed "completion" -- see the M1
+audit-correction report.
 """
 
 from __future__ import annotations
@@ -72,6 +91,19 @@ class NodeTypeSpec:
     def __post_init__(self) -> None:
         if not self.type:
             raise ValueError("NodeTypeSpec.type must be non-empty")
+        if self.version < 1:
+            raise ValueError("NodeTypeSpec.version must be >= 1")
+
+        # Defensive tuple normalization (M1 audit correction): a caller
+        # may pass a list for any of these; coerce so the stored value is
+        # genuinely immutable, not merely type-hinted as a tuple, and so
+        # mutating the caller's original list afterwards cannot reach
+        # this object.
+        object.__setattr__(self, "inputs", tuple(self.inputs))
+        object.__setattr__(self, "outputs", tuple(self.outputs))
+        object.__setattr__(self, "params", tuple(self.params))
+        object.__setattr__(self, "credential_types", tuple(self.credential_types))
+
         if self.is_trigger and self.inputs:
             raise ValueError("a trigger node type must declare no input ports")
         input_names = [p.name for p in self.inputs]
@@ -80,6 +112,10 @@ class NodeTypeSpec:
         output_names = [p.name for p in self.outputs]
         if len(output_names) != len(set(output_names)):
             raise ValueError(f"duplicate output port names on type {self.type!r}")
+        param_names = [p.name for p in self.params]
+        if len(param_names) != len(set(param_names)):
+            dupes = sorted({n for n in param_names if param_names.count(n) > 1})
+            raise ValueError(f"duplicate parameter declarations on type {self.type!r}: {dupes}")
 
     def input_port(self, name: str) -> InputPort | None:
         for p in self.inputs:

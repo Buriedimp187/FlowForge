@@ -98,23 +98,33 @@ def evaluate_readiness(
             f"node '{node_key}' -- validate the workflow before scheduling it"
         )
 
+    # Every required port the node TYPE declares, regardless of whether an
+    # edge happens to be connected to it. An unconnected required port can
+    # never receive data, so it must never be silently dropped from this
+    # set -- that was the M1 audit defect: a prior version of this
+    # function only tracked required ports that had at least one incoming
+    # edge, which let a node become READY/SKIPPED based solely on its
+    # optional ports whenever a required port had no edge at all.
     required_port_names = {p.name for p in spec.inputs if p.required}
 
     connected_edges = definition.edges_into(node_key)
     ports_with_data: set[str] = set()
-    required_ports_connected: set[str] = set()
     any_port_received_data = False
 
     for edge in connected_edges:
         upstream_row = upstream_rows[edge.source_key]
+        # emitted_on() distinguishes "the upstream node produced an
+        # (even empty) item list on this port" from "this port's key is
+        # simply absent from the upstream's output" -- see
+        # NodeRun.emitted_on and docs/architecture.md section 3.2.
         received = upstream_row is not None and upstream_row.emitted_on(edge.source_port)
         if received:
             any_port_received_data = True
             ports_with_data.add(edge.target_port)
-        if edge.target_port in required_port_names:
-            required_ports_connected.add(edge.target_port)
 
-    all_required_satisfied = required_ports_connected.issubset(ports_with_data)
+    # Every declared required port -- connected or not -- must be among
+    # the ports that actually received data.
+    all_required_satisfied = required_port_names.issubset(ports_with_data)
 
     if any_port_received_data and all_required_satisfied:
         return NodeReadiness.READY

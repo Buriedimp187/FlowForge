@@ -18,7 +18,7 @@ invalid connections.").
 
 from __future__ import annotations
 
-from flowforge.domain.graph import WorkflowDefinition
+from flowforge.domain.graph import ExecutionMode, WorkflowDefinition
 from flowforge.domain.validation import ValidationIssue, ValidationResult
 from flowforge.engine.graph_utils import find_cycle, reachable_from
 from flowforge.engine.ports import CredentialDirectory, ExpressionSyntaxChecker, NodeTypeCatalog
@@ -149,6 +149,16 @@ def validate(
 
         for param_error in spec.validate_params(dict(node.params)):
             errors.append(ValidationIssue("invalid_parameter", param_error, node_key=node.key))
+
+        if node.execution_mode is ExecutionMode.PER_ITEM and not spec.supports_per_item:
+            errors.append(
+                ValidationIssue(
+                    "per_item_not_supported",
+                    f"node '{node.key}' is configured for per-item execution, but node "
+                    f"type '{node.type}' version {node.type_version} does not support it",
+                    node_key=node.key,
+                )
+            )
 
         if node.credential_id is not None:
             if not spec.credential_types:

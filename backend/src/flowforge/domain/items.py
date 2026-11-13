@@ -7,20 +7,9 @@ docs/architecture.md section 2 ("items are `{ json: {...} }`") and section 5
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Mapping
 
-
-def _frozen_mapping(data: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Return a read-only view over a shallow copy of ``data``.
-
-    This does not deep-freeze nested structures (that would require
-    recursively wrapping every list/dict, which is unnecessary complexity
-    for M1). Callers must not mutate nested values after constructing an
-    Item; this is a documented convention, not a runtime guarantee below
-    the top level.
-    """
-    return MappingProxyType(dict(data))
+from flowforge.domain._immutable import deep_freeze
 
 
 @dataclass(frozen=True)
@@ -29,12 +18,17 @@ class Item:
 
     Binary data is explicitly out of scope for v0.1 (docs/mvp-scope.md), so
     an Item carries only a JSON-shaped payload.
+
+    ``json`` is deep-frozen at construction (M1 audit correction: a
+    shallow ``MappingProxyType`` previously left nested dicts/lists
+    mutable, both from the caller's original object after construction
+    and through the Item itself). See flowforge.domain._immutable.
     """
 
     json: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "json", _frozen_mapping(self.json))
+        object.__setattr__(self, "json", deep_freeze(dict(self.json)))
 
 
 # An ordered, immutable sequence of items. Order is significant: it is what
