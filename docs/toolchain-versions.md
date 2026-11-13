@@ -57,15 +57,20 @@ since 3.14 is the actively-maintained prior-feature series with materially broad
 dependency-wheel availability by now than the brand-new 3.15 series. **This
 reasoning is unchanged by the 2026-11-13 evidence refresh.**
 
-**Compatibility with the eventual backend dependency set is unverified and remains
-an open item**, not silently assumed solved: FastAPI, Pydantic v2, SQLAlchemy 2.x,
-Alembic, psycopg 3, argon2-cffi, cryptography, httpx, httpcore, and jmespath have
-not been checked against Python 3.14 wheel availability, because no dependency has
-been installed or even selected with exact versions yet. **This check must happen
-before the M1 dependency lockfile (`uv.lock`) is finalized** — if a required
-dependency lacks a 3.14 wheel or has an unresolved incompatibility at that time, the
-baseline series decision itself (3.14 vs. 3.13 vs. another series) must be
-revisited and documented as a new deviation, not silently patched around.
+**Compatibility with the rest of the eventual backend dependency set is unverified
+and remains an open item**, not silently assumed solved: FastAPI, Pydantic v2,
+SQLAlchemy 2.x, Alembic, psycopg 3, argon2-cffi, cryptography, httpx, httpcore, and
+jmespath have not been checked against Python 3.14 wheel availability, because none
+of them has been installed or even selected with exact versions yet. This is
+narrower than it once was: `jsonschema` **has** since been declared and installed
+(the first backend dependency — see "Backend dependencies" below), with its own
+Python 3.14 evidence tracked separately there, which is metadata/wheel-availability
+evidence, not an executed-on-3.14 verification. **The check for this remaining,
+not-yet-installed list must happen before the M1 dependency lockfile (`uv.lock`) is
+finalized** — if a required dependency lacks a 3.14 wheel or has an unresolved
+incompatibility at that time, the baseline series decision itself (3.14 vs. 3.13 vs.
+another series) must be revisited and documented as a new deviation, not silently
+patched around.
 
 Sources: `https://www.python.org/downloads/release/python-31410/` (3.14.10, primary
 evidence for this refresh); also consulted:
@@ -176,12 +181,18 @@ until `uv.lock` is introduced at a later milestone. It is regenerated the same w
    that is still `package-lock.json`, which does not exist yet (no frontend
    dependency has been installed). For the backend, `uv` is not installed (see
    "No lockfile tool (`uv`) yet" below), so `uv.lock` does not exist either — but
-   the backend is no longer dependency-free: `backend/pyproject.toml` is the
-   authoritative declaration of what the backend depends on (currently
-   `jsonschema==4.26.0`, an abstract, unpinned requirement), and
-   `backend/requirements-lock.txt` (a plain `pip freeze` from the isolated
-   `backend/.venv`) is the actual exact-version pin used for the current
-   install-and-test workflow until `uv.lock` replaces it.
+   the backend is no longer dependency-free. Three distinct things, not one:
+   `backend/pyproject.toml` is the authoritative **declaration** of what the
+   backend directly depends on (currently `jsonschema==4.26.0` — itself already an
+   exact version, not a range, though declaring it there is not the same as
+   installing it); `backend/requirements-lock.txt` (a plain `pip freeze` from the
+   isolated `backend/.venv`) is the actual **exact-version installation lock**
+   used by the current install-and-test workflow, covering `jsonschema` and its
+   transitive dependencies together, and is what is really installed, until
+   `uv.lock` replaces it; and Python 3.14 **execution verification** of that
+   installed set is a third, still-open thing neither file establishes on its
+   own (see "Backend dependencies" above) — installed-and-pinned is not the same
+   claim as executed-and-verified-on-3.14.
 4. **CI third-party actions are pinned to a commit SHA**, not a tag (see
    `.github/workflows/ci.yml` and `docs/adr/0015-toolchain-baselines-and-pinning.md`).
 5. **Re-verification is required, not optional**, at each milestone that first

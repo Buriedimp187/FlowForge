@@ -232,7 +232,27 @@ def resolve_idempotent_write_timeout(
     failure is handled by the ordinary :func:`flowforge.engine.retry.decide_retry`
     /``on_error`` path, since its outcome is no longer unknown (approved
     rule 6).
+
+    ``failures_after_this_one`` must be a strictly positive plain
+    ``int`` (M1 final audit fix, second pass): ``bool`` is rejected even
+    though it is an ``int`` subclass in Python (consistent with the
+    bool-rejection rule used throughout
+    :mod:`flowforge.domain.graph`/:mod:`flowforge.domain.node_run`),
+    floats are rejected even when integral (``1.0``), and zero/negative
+    values are rejected -- the counter is only ever recorded after T3
+    increments ``failures`` (docs/architecture.md section 5.1), so it is
+    never zero when this function is called. Validation happens before
+    any resolution logic, so an invalid value can never reach
+    ``RETRY_WAIT`` or any other result.
     """
+    if isinstance(failures_after_this_one, bool) or not isinstance(failures_after_this_one, int):
+        raise TypeError(
+            "failures_after_this_one must be a plain int, not "
+            f"{type(failures_after_this_one).__name__} ({failures_after_this_one!r})"
+        )
+    if failures_after_this_one < 1:
+        raise ValueError(f"failures_after_this_one must be >= 1, got {failures_after_this_one!r}")
+
     if failures_after_this_one < policy.max_attempts:
         delay = compute_backoff(policy, failures_after_this_one)
         return InterruptionResolution(

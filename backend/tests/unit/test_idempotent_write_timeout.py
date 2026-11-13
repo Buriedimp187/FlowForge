@@ -89,6 +89,47 @@ class TimeoutWithUnknownOutcomeTestCase(unittest.TestCase):
         self.assertEqual(resolution.error_code, "outcome_unknown_retries_exhausted")
 
 
+class FailuresAfterThisOneValidationTestCase(unittest.TestCase):
+    """M1 final audit fix (second pass): failures_after_this_one must be
+    a strictly positive plain int. Invalid values must raise before any
+    resolution logic runs -- they can never produce RETRY_WAIT or any
+    other InterruptionResolution."""
+
+    def setUp(self) -> None:
+        self.clock = FakeClock(start=1000.0)
+        self.policy = RetryPolicy(max_attempts=3, backoff_base_s=1.0, backoff_multiplier=2.0, backoff_max_s=60.0)
+
+    def test_bool_true_is_rejected(self) -> None:
+        # bool is an int subclass in Python -- must be rejected anyway.
+        with self.assertRaises(TypeError):
+            resolve_idempotent_write_timeout(failures_after_this_one=True, policy=self.policy, clock=self.clock)
+
+    def test_bool_false_is_rejected(self) -> None:
+        with self.assertRaises(TypeError):
+            resolve_idempotent_write_timeout(failures_after_this_one=False, policy=self.policy, clock=self.clock)
+
+    def test_non_integral_float_is_rejected(self) -> None:
+        with self.assertRaises(TypeError):
+            resolve_idempotent_write_timeout(failures_after_this_one=1.5, policy=self.policy, clock=self.clock)
+
+    def test_integral_float_is_still_rejected(self) -> None:
+        # 1.0 == 1 but is not a plain int -- must still be rejected.
+        with self.assertRaises(TypeError):
+            resolve_idempotent_write_timeout(failures_after_this_one=1.0, policy=self.policy, clock=self.clock)
+
+    def test_zero_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_idempotent_write_timeout(failures_after_this_one=0, policy=self.policy, clock=self.clock)
+
+    def test_negative_integer_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_idempotent_write_timeout(failures_after_this_one=-1, policy=self.policy, clock=self.clock)
+
+    def test_valid_positive_integer_is_accepted(self) -> None:
+        resolution = resolve_idempotent_write_timeout(failures_after_this_one=1, policy=self.policy, clock=self.clock)
+        self.assertEqual(resolution.status, NodeRunStatus.RETRY_WAIT)
+
+
 class IdempotencyKeyStabilityAcrossRetriesTestCase(unittest.TestCase):
     """Approved rules 1 and 2."""
 
