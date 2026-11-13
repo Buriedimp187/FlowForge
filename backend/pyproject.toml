@@ -1,0 +1,35 @@
+[project]
+name = "flowforge"
+version = "0.1.0.dev0"
+description = "FlowForge backend: domain model and execution engine (M1)."
+readme = "../README.md"
+license = { text = "MIT" }
+# Baseline series per ADR-0015 / docs/toolchain-versions.md. This range is
+# intentionally permissive (3.13 through <3.16) rather than pinned to an
+# exact patch, since no exact patch pin has been finalized yet -- see
+# docs/toolchain-versions.md for why 3.14 is the selected baseline and
+# the open item regarding its verification against this dependency set.
+requires-python = ">=3.13,<3.16"
+
+# M1 introduces NO third-party runtime dependencies: the domain model and
+# pure engine use only the standard library (dataclasses, enum, uuid,
+# types, typing). This is deliberate (engineering principle #7, "avoid
+# unnecessary dependencies") and also sidesteps any Python-3.14
+# wheel-availability question for M1 itself -- see
+# docs/toolchain-versions.md, "Compatibility with the eventual backend
+# dependency set is unverified", which remains an open item for M2+ when
+# FastAPI/SQLAlchemy/etc. are actually introduced.
+dependencies = []
+
+[tool.pytest.ini_options]
+# Not used to run M1's tests (no pytest is installed; see the M1
+# completion report), kept only so a future `pip install pytest` + `pytest`
+# works without extra configuration once that milestone chooses to add it.
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
