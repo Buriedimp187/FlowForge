@@ -42,7 +42,7 @@ No runtime, package, or dependency has been installed as part of M0.
 ## Python
 
 | | |
-|---|---|
+| --- | --- |
 | Selected baseline series | **3.14** (deviates from the proposed 3.13 baseline — see below) |
 | Latest observed release evidence | **3.14.10**, released 2026-10-25. Source: `https://www.python.org/downloads/release/python-31410/` |
 | Final exact configuration pin | **Not yet set.** To be fixed in `.python-version` / `pyproject.toml#requires-python` / the backend Dockerfile, with a fresh direct check against `https://www.python.org/downloads/` at that time (M1 for the version constraint, M4 for the Docker image tag+digest) |
@@ -59,9 +59,10 @@ reasoning is unchanged by the 2026-11-13 evidence refresh.**
 
 **Compatibility with the rest of the eventual backend dependency set is unverified
 and remains an open item**, not silently assumed solved: FastAPI, Pydantic v2,
-SQLAlchemy 2.x, Alembic, psycopg 3, argon2-cffi, cryptography, httpx, httpcore, and
-jmespath have not been checked against Python 3.14 wheel availability, because none
-of them has been installed or even selected with exact versions yet. This is
+argon2-cffi, cryptography, httpx, httpcore, and jmespath have not been checked
+against Python 3.14 wheel availability, because none of them has been installed or
+even selected with exact versions yet. (SQLAlchemy, Alembic and psycopg 3 were
+selected and installed at M2.1; see "M2.1 persistence dependencies" below.) This is
 narrower than it once was: `jsonschema` **has** since been declared and installed
 (the first backend dependency — see "Backend dependencies" below), with its own
 Python 3.14 evidence tracked separately there, which is metadata/wheel-availability
@@ -82,7 +83,7 @@ evidence for this refresh); also consulted:
 ## Node.js
 
 | | |
-|---|---|
+| --- | --- |
 | Selected baseline series | **24 LTS ("Krypton")** — accepted as proposed, no deviation |
 | Latest observed release evidence | **24.22.3**, listed in the official Node.js 24 download archive, last updated 2026-11-10. Source: `https://nodejs.org/en/download/archive/v24` |
 | Final exact configuration pin | **Not yet set.** To be fixed in `.nvmrc` / `package.json#engines` / the frontend Dockerfile, with a fresh direct check against `https://nodejs.org/en/download/archive/v24` at that time (M5) |
@@ -99,7 +100,7 @@ refresh); also consulted: `https://nodejs.org/about/previous-releases`.
 ## PostgreSQL
 
 | | |
-|---|---|
+| --- | --- |
 | Selected baseline series | **17** — accepted as proposed per decision U7 (already settled during architecture review); this document only ever pins the **minor/patch**, never the major version |
 | Latest observed release evidence | **17.12**, released 2026-11-12. Source: `https://www.postgresql.org/docs/release/17.12/` |
 | Final exact configuration pin | **Not yet set.** To be fixed in the Postgres service's Docker image tag (plus a `@sha256:` digest, per the pinning rules below) at M4, with a fresh direct check against `https://www.postgresql.org/docs/release/` at that time |
@@ -126,7 +127,7 @@ M1's final correction pass replaced a small custom parameter validator with real
 user-approved decision behind ADR-0005's latest revision). The library:
 
 | | |
-|---|---|
+| --- | --- |
 | Package | `jsonschema` |
 | Exact version | **4.26.0**, pinned in `backend/pyproject.toml` and `backend/requirements-lock.txt` |
 | Transitive dependencies (exact, from the same lock file) | `attrs==26.1.0`, `jsonschema-specifications==2025.9.1`, `referencing==0.37.0`, `rpds-py==2026.9.1` |
@@ -163,10 +164,39 @@ user-approved decision behind ADR-0005's latest revision). The library:
   `if`/`then`/`else`, and a `$ref`/`$defs` reference — see
   `backend/tests/unit/test_param_schema.py`.
 
+### M2.1 persistence dependencies
+
+Added for the PostgreSQL persistence foundation (`docs/m2-persistence-design.md`).
+All are exact pins in `backend/pyproject.toml`; installed versions were resolved in
+the isolated `backend/.venv` on **Python 3.15.2** only.
+
+| Package | Pin | Role |
+| --- | --- | --- |
+| SQLAlchemy | 2.1.8 | Core only (no ORM) |
+| Alembic | 1.20.1 | hand-written SQL migrations |
+| psycopg (`[binary]`) | 3.3.9 | the only supported driver (`postgresql+psycopg`) |
+| testcontainers (`[postgres]`, test only) | 4.15.0 | local PostgreSQL for integration tests |
+
+- **Locks:** `backend/requirements-lock.txt` (runtime) and
+  `backend/requirements-dev-lock.txt` (test-only, disjoint from runtime), both
+  exact `==` pins including transitive packages. `backend/tests/unit/test_toolchain_pins.py`
+  checks `pyproject.toml` against both.
+- **Python floor:** `requires-python = ">=3.14,<3.16"` because ids use the
+  standard-library `uuid.uuid7()` (added in 3.14). **No code has been executed on
+  Python 3.14**; that runtime verification is still outstanding.
+- **PostgreSQL test/CI image:** `postgres:17.12` pinned with its OCI index digest
+  `sha256:dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f035b1ab1823aff3205`
+  (observed 2026-11-13). It is named once in `backend/tests/integration/support.py`
+  and must equal the `services:` image in `.github/workflows/ci.yml` (enforced by a
+  unit test). Re-verify tag and digest when bumping the PostgreSQL minor.
+- The Testcontainers reaper (Ryuk) is disabled so that no unpinned helper image is
+  pulled; the test support module removes its container at process exit.
+
 ### No lockfile tool (`uv`) yet
 
-As before (M0), `uv` is not installed, so `backend/requirements-lock.txt` — a plain
-`pip freeze` output from the isolated venv above — is the project's dependency lock
+As before (M0), `uv` is not installed, so `backend/requirements-lock.txt` (plus the test-only
+`backend/requirements-dev-lock.txt`) — plain pinned output from isolated venvs — is
+the project's dependency lock
 until `uv.lock` is introduced at a later milestone. It is regenerated the same way
 (`pip install` into a fresh venv, then `pip freeze`) whenever a dependency changes.
 
@@ -176,16 +206,16 @@ until `uv.lock` is introduced at a later milestone. It is regenerated the same w
    unpinned `FROM`/`engines`/`requires-python` range are prohibited once Dockerfiles
    or lockfiles exist (M1+).
 2. **Image references add a digest** (`@sha256:...`) in addition to the version
-   tag, once Dockerfiles are written (M4).
+   tag: already applied to the PostgreSQL test/CI image (M2.1); Dockerfiles follow
+   at M4.
 3. **Lockfiles are the actual pin** for application dependencies. For the frontend,
    that is still `package-lock.json`, which does not exist yet (no frontend
    dependency has been installed). For the backend, `uv` is not installed (see
    "No lockfile tool (`uv`) yet" below), so `uv.lock` does not exist either — but
    the backend is no longer dependency-free. Three distinct things, not one:
    `backend/pyproject.toml` is the authoritative **declaration** of what the
-   backend directly depends on (currently `jsonschema==4.26.0` — itself already an
-   exact version, not a range, though declaring it there is not the same as
-   installing it); `backend/requirements-lock.txt` (a plain `pip freeze` from the
+   backend directly depends on (currently `jsonschema`, SQLAlchemy, Alembic and psycopg, each an
+   exact version, not a range, plus the test-only testcontainers); `backend/requirements-lock.txt` (a plain `pip freeze` from the
    isolated `backend/.venv`) is the actual **exact-version installation lock**
    used by the current install-and-test workflow, covering `jsonschema` and its
    transitive dependencies together, and is what is really installed, until
@@ -206,7 +236,7 @@ Recorded only to document what M0's environment inspection found; **none of this
 was installed by this task, and none of it is a project requirement**:
 
 | Tool | Observed version |
-|---|---|
+| --- | --- |
 | Git | 2.56.1.windows.1 |
 | Docker | 29.9.3 |
 | Docker Compose | v5.7.0 |

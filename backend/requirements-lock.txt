@@ -1,26 +1,39 @@
-# FlowForge backend dependency lock, M1 final correction pass.
+# FlowForge backend runtime dependency lock (M1 + M2.1).
 #
-# No `uv` is installed in this environment (docs/toolchain-versions.md),
-# so this plain pinned-requirements file is the project's lockfile until
-# `uv.lock` is introduced at a later milestone. Every line is an exact
-# version resolved and installed into an isolated project virtual
-# environment (backend/.venv, created with `python -m venv .venv`; never
-# the global interpreter), via:
+# No `uv` is installed in this environment (docs/toolchain-versions.md), so
+# this plain pinned-requirements file is the project's runtime lockfile until
+# `uv.lock` is introduced at a later milestone. backend/pyproject.toml is the
+# authoritative DECLARATION of the direct dependencies; this file is the
+# exact-version INSTALLATION lock for them and their transitive dependencies.
+# Test-only dependencies are locked separately in requirements-dev-lock.txt.
+#
+# Every line is an exact version resolved and installed into a clean
+# isolated virtual environment (never the global interpreter), via:
 #
 #   python -m venv .venv
-#   .venv/bin/pip install jsonschema==4.26.0   # (or .venv\Scripts\pip.exe on Windows)
-#   .venv/bin/pip freeze > requirements-lock.txt
+#   .venv/bin/pip install "jsonschema==4.26.0" "SQLAlchemy==2.1.8" \
+#       "alembic==1.20.1" "psycopg[binary]==3.3.9"
+#   .venv/bin/pip freeze      # then: drop `pip`, add platform markers below
 #
-# Resolved and installed on: Python 3.15.2 (CPython, win_amd64) -- the
-# only interpreter available on the machine this work was done on.
-# Python 3.14 was NOT available to install into, so this file records
-# what was actually run, not what was assumed. See
-# docs/toolchain-versions.md, "JSON Schema dependency (jsonschema)" for
-# the full compatibility-evidence discussion, including why rpds-py's
-# published cp314-win_amd64 wheel is metadata-level evidence, not an
-# executed verification.
+# `tzdata` is only required on Windows (psycopg declares it with a
+# sys_platform == "win32" marker), so it carries that marker here; every other
+# line is platform independent.
+#
+# Resolved and installed on: Python 3.15.2 (CPython, win_amd64) -- the only
+# interpreter available on the machine this work was done on. Python 3.14 was
+# NOT available, so this file records what was actually run, not what was
+# assumed. See docs/toolchain-versions.md for the compatibility-evidence
+# discussion and the open item that nothing has been executed on 3.14.
+alembic==1.20.1
 attrs==26.1.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
+Mako==1.4.3
+MarkupSafe==3.0.4
+psycopg==3.3.9
+psycopg-binary==3.3.9
 referencing==0.37.0
 rpds-py==2026.9.1
+SQLAlchemy==2.1.8
+typing_extensions==4.16.0
+tzdata==2026.6 ; sys_platform == "win32"

@@ -11,7 +11,7 @@ Each gate is a requirement to demonstrate at a specific milestone (see
 should be treated as passed until its test suite actually runs green.
 
 | Gate | Requirement | Milestone | If not met |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **RB1a** | Core connection-security (CS) gates pass: AP1 (resolve once, connect to validated address), AP2 (TLS SNI + hostname verification against the original hostname), AP3 (DNS-rebinding immunity), AP5 (environment proxies inert), the startup self-test, the no-unpinned-code-path rule, the per-connection invariant | M3 | Outbound is `disabled` for every outbound-capable node, HTTP and every LLM adapter included. Release is delayed; an ADR records the decision. There is no weaker fallback |
 | **RB1b** | AP6 (absolute-deny set + private/overridable tier, validated on every resolved address and every redirect hop) and AP7 (exact-match allowlist semantics, entry-scoped `allow_private`) pass, including tests with `allow_private` both false and true against every absolute-deny address | M3 | Outbound is `disabled`. Restricted mode is **not** a fallback for an AP6/AP7 shortfall — see `docs/architecture.md` §7.3 |
 | **RB1c** | AP4 (per-hop redirect re-validation) passes | M3 | Mode ceiling is `restricted` (redirects are not followed there anyway); documented, with an ADR |
@@ -27,7 +27,7 @@ should be treated as passed until its test suite actually runs green.
 ## Risk register
 
 | ID | Risk | Status / mitigation |
-|---|---|---|
+| --- | --- | --- |
 | R1 | Replay re-executes previously succeeded writes, so a user can duplicate real-world side effects | Mitigated only by a confirmation dialog listing write-class nodes before Replay proceeds. A "skip succeeded nodes" replay is the post-MVP retry-from-failed-node feature, not v0.1 |
 | **R2** | Secure IP pinning with correct TLS hostname verification may not be achievable cleanly on the chosen transport | Unproven until M3. A CS failure disables **all** outbound-capable nodes (HTTP and LLM), with no weaker fallback — see RB1a. An AP6/AP7 shortfall also disables outbound rather than falling back to restricted |
 | R3 | Lease loss from event-loop or GIL starvation (e.g. CPU-heavy expression evaluation on a large payload) could risk duplicate execution after a reclaim | Mitigated by the dedicated heartbeat thread (separate connection from the executor loop) and by payload/expression size limits. Not eliminated — validated by the M2 stress test (RB6). A lease loss is safe for *state* (fenced writes) but not necessarily for an in-flight external effect |

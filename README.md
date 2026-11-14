@@ -57,7 +57,7 @@ MIT — see [LICENSE](LICENSE).
 ## Documentation
 
 | Document | Contents |
-|---|---|
+| --- | --- |
 | [docs/architecture.md](docs/architecture.md) | The canonical, consolidated architecture specification |
 | [docs/adr/](docs/adr/README.md) | Architecture Decision Records, one per major decision |
 | [docs/mvp-scope.md](docs/mvp-scope.md) | What v0.1 includes, and what is explicitly deferred |

@@ -23,7 +23,7 @@ making this a realistic bypass rather than a theoretical one.
 **Gate sets and mode eligibility** (the final, corrected rule — see history):
 
 | CS | AP6 | AP7 | AP4 | Effective mode |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | fail | any | any | any | **disabled** |
 | pass | **fail** | any | any | **disabled** |
 | pass | pass | **fail** | any | **disabled** |

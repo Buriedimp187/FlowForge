@@ -15,7 +15,7 @@ start.
 Two separate, explicitly-scoped limits, plus a per-attempt node timeout:
 
 | Limit | Starts | Ends | On expiry |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Queue timeout** | Enqueue | First claim | `timed_out`, `queue_timeout` — detected only when a worker finally claims the run; nothing has ever executed |
 | **Run timeout** | First claim | Terminal | `timed_out`, with any interrupted nodes resolved per the interruption matrix (ADR-0005). Deliberately includes retry waits and parked downtime — nothing resets it once set |
 | **Node timeout** | Each attempt's start | That attempt's end | Per the interruption matrix; retry backoff time is excluded |

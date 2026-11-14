@@ -17,7 +17,7 @@ No new ADR was created solely to pad this directory. Every ADR here corresponds 
 an actual decision point raised and resolved during architecture review.
 
 | ID | Title | Status |
-|---|---|---|
+| --- | --- | --- |
 | [0001](0001-modular-monolith.md) | Modular monolith with three roles | Accepted |
 | [0002](0002-postgresql-only-required-service.md) | PostgreSQL as the only required service | Accepted |
 | [0003](0003-postgres-queue-leases-fencing.md) | Postgres-backed queue with leases, fencing, and parking | Accepted (revised) |

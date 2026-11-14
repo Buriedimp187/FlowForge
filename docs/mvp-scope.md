@@ -72,7 +72,7 @@ not include. It must not be expanded without a documented architecture revision;
 ## The U1–U8 decisions (confirmed, binding)
 
 | ID | Decision |
-|---|---|
+| --- | --- |
 | U1 | Per-item execution mode + Split Out; no dedicated Loop node in v0.1 |
 | U2 | Explicit master-key provisioning by default (fail closed); an opt-in quick-start flow may generate one |
 | U3 | Webhook tokens: hashed, shown once, regenerable |

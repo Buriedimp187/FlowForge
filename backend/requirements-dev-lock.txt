@@ -1,0 +1,29 @@
+# FlowForge backend development/test-only dependency lock (M2.1).
+#
+# Everything here is needed only to run the database integration tests with a
+# local, throw-away PostgreSQL container (testcontainers). None of it is a
+# runtime dependency of the shipped application (docs/m2-persistence-design.md
+# D3), and none of it introduces a Dockerfile or Compose file. Install together
+# with the runtime lock:
+#
+#   pip install -r requirements-lock.txt -r requirements-dev-lock.txt
+#
+# This is the `pip freeze` difference between a clean venv containing
+# "testcontainers[postgres]==4.15.0" plus the runtime pins and a clean venv
+# containing the runtime pins alone. `pywin32` is only required on Windows
+# (docker-py declares it with a sys_platform == "win32" marker), so it carries
+# that marker here; every other line is platform independent.
+#
+# Resolved and installed on Python 3.15.2 (CPython, win_amd64); see
+# requirements-lock.txt and docs/toolchain-versions.md for the Python 3.14
+# verification limitation.
+certifi==2026.10.23
+charset-normalizer==3.5.2
+docker==7.2.0
+idna==3.20
+python-dotenv==1.2.4
+pywin32==312 ; sys_platform == "win32"
+requests==2.34.2
+testcontainers==4.15.0
+urllib3==2.8.0
+wrapt==2.5.2

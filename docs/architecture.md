@@ -43,7 +43,7 @@ every decision below):
 
 ### 1.1 Runtime topology
 
-```
+```text
 Browser ──> web (Next.js) ──HTTP──> api (FastAPI) ──┐
                                                     ├──> PostgreSQL  (the only stateful service)
                               worker (Python) ──────┘
@@ -56,7 +56,7 @@ service.** There is no Redis, no message broker, no separate scheduler service, 
 no pub/sub layer (ADR-0002).
 
 | Role | Process | Owns | Must not |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **web** | Next.js, TypeScript | Editor, run inspector, settings UI | Execute workflows, hold secrets, talk to PostgreSQL directly |
 | **api** | `flowforge serve` | Auth, CRUD, validation, enqueue, webhook ingress, cancel requests, read APIs | Execute nodes; write node-level state or terminal run status, except the single `queued → cancelled` transition |
 | **worker** | `flowforge worker` (same package as `api`) | Claim runs, execute nodes, persist node state, finalize runs, retention maintenance | Serve user-facing HTTP (a health endpoint only) |
@@ -103,7 +103,7 @@ The frontend converts it, through one adapter module, to a backend-owned **defin
 schema; the backend validates and is authoritative over that schema. The execution
 engine never reads layout data.
 
-```
+```text
 Definition (versioned by schema_version)
   nodes[]: { key, type, type_version, name, params, credential_id?,
              retry?, timeout_s?, on_error }
@@ -130,7 +130,7 @@ version referenced by any run is never deleted.
 ### 2.3 Tables (PostgreSQL, UTC `timestamptz`, UUIDv7 or bigint ids)
 
 | Table | Notes |
-|---|---|
+| --- | --- |
 | `admin_user` | Single row enforced by constraint; argon2id password hash |
 | `sessions` | Hashed session tokens, expiry, revocable |
 | `workflows` | name, `active_version_id`, `webhook_enabled` |
@@ -166,7 +166,7 @@ needs exactly this one fact ("did this node ever start") — which an absent row
 for free. The UI renders an absent row as "not reached", computed against the pinned
 definition.
 
-```
+```text
 (absent) ─[T2]→ running ─[T3]→ succeeded | failed | cancelled | retry_wait
 retry_wait ─[T2]→ running                 (when retry_at ≤ db_now)
 (absent) ─[scheduling pass or T3]→ skipped
@@ -181,7 +181,7 @@ the only input recovery needs; there is no separate recovery table or pass.
 ### 3.2 Readiness
 
 | Node condition | Ready? |
-|---|---|
+| --- | --- |
 | **Source node** (no incoming edges — the trigger), no row | Ready at run start. Exempt from the "received data" rule below; "all upstream terminal" holds vacuously |
 | Other node, no row | Ready iff all upstream nodes of its *connected* edges are terminal |
 | `retry_wait` row | Ready iff `retry_at ≤ db_now` |
@@ -227,7 +227,7 @@ a single PostgreSQL primary** is assumed throughout (see Risk R7).
 `runs.status ∈ {queued, waiting, running, succeeded, failed, cancelled, timed_out}`.
 
 | Status | Owned? | `visible_at` means | Claimable when |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `queued` | no | earliest start (normally enqueue time) | `visible_at ≤ now()` |
 | `waiting` | no (parked — §4.5) | next wake time | `visible_at ≤ now()` |
 | `running` | yes (lease) | lease expiry | `visible_at ≤ now()` (an expired lease is reclaimed) |
@@ -384,7 +384,7 @@ the longest expected node timeout (an operational requirement to document at M4)
 ### 4.6 Time limits
 
 | Limit | Starts | Ends | Enforced by | On expiry |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **Queue timeout** (`queue_deadline_at`) | Enqueue | First claim | The claiming worker (post-claim check 1) | `timed_out`, `queue_timeout`; nothing ever executes |
 | **Run timeout** (`deadline_at`) | First claim | Terminal | The live worker's timer; any later claimer (check 2); a parked run wakes at `deadline_at` | `timed_out` once live attempts have drained; any node left started-without-result is resolved per the §6.2 *Run deadline* column |
 | **Node timeout** | T2 of that attempt | That attempt's end | The executor | Per the §6.2 matrix; retry backoff time is excluded |
@@ -410,7 +410,7 @@ Proposed defaults (configurable): queue timeout 1 h, run timeout 1 h, node timeo
 
 ### 4.7 Execution loop (summary)
 
-```
+```text
 claim → post-claim checks → [loop]
    refresh state (rows + definition) → resolve skips → compute ready set
    ready empty & in-flight empty:
@@ -440,7 +440,7 @@ in-memory state is a cache only, never the source of truth.
 
 ## 5. Node contract
 
-```
+```text
 NodeType:
   type, version
   params_schema            # a JSON Schema (Draft 2020-12) document; drives the UI form
@@ -540,7 +540,7 @@ ever recomputes it.
 ### 6.1 Effect classes
 
 | Class | Meaning | Examples |
-|---|---|---|
+| --- | --- | --- |
 | `pure` | No external effects; deterministic | Trigger, Set, IF, Switch, Merge, Split Out |
 | `read` | External reads; no intended mutation of external state | HTTP GET/HEAD/OPTIONS by default; LLM Prompt (see §6.3 for the billing caveat specific to LLM) |
 | `idempotent_write` | A write the **user has explicitly asserted** is safe to repeat | An HTTP request with `retry_safety = safe_to_retry` |
@@ -553,7 +553,7 @@ node's `retry_safety` parameter is the only thing that can move a write out of
 `unsafe_write`:
 
 | `retry_safety` | GET/HEAD/OPTIONS | PUT/DELETE/POST/PATCH/other |
-|---|---|---|
+| --- | --- | --- |
 | `auto` (default) | `read` | `unsafe_write` |
 | `safe_to_retry` (user asserts repeating is harmless, e.g. the API dedupes by key) | `read` | `idempotent_write` |
 | `never_retry` | `unsafe_write` | `unsafe_write` |
@@ -579,7 +579,7 @@ column below applies to an attempt left started-without-result that no live work
 is draining — an orphan — and to nothing else. The per-node timeout is independent.
 
 | Class | Crash / lease lost (orphan at claim) | Cancel | Node timeout | Run deadline |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `pure` | Re-execute | `cancelled`, known | `failed` (timeout), known; retryable per policy | `cancelled`, known |
 | `read` | Re-execute | `cancelled`, known | `failed` (timeout), known; retryable | `cancelled`, known |
 | `idempotent_write` | Re-execute with the same key | `cancelled`, **unknown** | `retry_wait` (same key) while the retry budget remains; once exhausted, `failed`, **unknown**, and the run fails regardless of `on_error` — see the dedicated rule below | `cancelled`, **unknown** |
@@ -587,6 +587,7 @@ is draining — an orphan — and to nothing else. The per-node timeout is indep
 | `unsafe_write`, dispatched or unprovable | `failed`, `outcome_unknown`, **unknown** | `failed`, `outcome_unknown`, **unknown** | `failed`, `outcome_unknown`, **unknown** | `failed`, `outcome_unknown`, **unknown** |
 
 Rules:
+
 - **`unsafe_write` with `outcome_unknown` is never retried automatically and never
   labeled `cancelled`.** `error.cause ∈ {crash, cancel, timeout, deadline,
   lease_lost}` records why.
@@ -725,7 +726,7 @@ RETURNING r.status;
 instance, per gate RB3 — never a mock):
 
 | Race | Outcome |
-|---|---|
+| --- | --- |
 | Cancel commits **before** T4(`succeeded`) | T4's `CASE` observes the flag → run ends `cancelled` |
 | T4 commits **before** cancel | The cancel's `WHERE status IN (...)` predicate fails (already terminal) → `409`, the already-final status is returned |
 | Cancel vs. park | Park's `UPDATE` predicate requires `cancel_requested_at IS NULL`. If cancel wins, park returns 0 rows and the worker takes the cancel path instead. If park wins, the run becomes `waiting` and the cancel statement sets `visible_at = now()`, so it is claimed and finalized promptly |
@@ -753,7 +754,7 @@ this**, so:
 - **Retry policy for interrupted LLM requests:**
 
   | Situation | Default |
-  |---|---|
+  | --- | --- |
   | Failure established as `pre_dispatch` | Retryable |
   | Retryable per a documented provider rule, and not billing-uncertain | Retried by default |
   | Retryable but billing-uncertain (including an undocumented 429) | **Not retried by default**; opt-in via `retry_on`, labeled "may cause duplicate charges" |
@@ -773,7 +774,7 @@ this**, so:
 
 ### 6.4 Idempotency keys
 
-```
+```text
 key(run, node)             = UUIDv5(FLOWFORGE_NS, f"{run_id}/{node_key}")
 key(run, node, item_index) = UUIDv5(FLOWFORGE_NS, f"{run_id}/{node_key}/{item_index}")
 ```
@@ -827,7 +828,7 @@ automatically. Operators who need a forward proxy use network-level egress contr
 ### 7.2 Gate sets
 
 | Set | Gates | Protects |
-|---|---|---|
+| --- | --- | --- |
 | **CS — core connection security** | AP1 (resolve once, connect to the validated address), AP2 (TLS SNI + certificate hostname verification against the *original* hostname), AP3 (DNS-rebinding immunity), AP5 (environment proxies inert), the startup self-test, the no-unpinned-code-path rule, and the per-connection invariant (§7.5) | Every outbound connection is pinned and TLS-verified, **regardless of destination** |
 | **AP6 — address validation** | The absolute-deny set (§7.6) and the private/overridable tier, applied to every resolved address and every redirect hop | Destinations can be screened safely at all |
 | **AP7 — allowlist semantics** | Exact `{host, port, scheme}` entries, no wildcards, entry-scoped `allow_private` | Operator-approved destinations are unambiguous |
@@ -836,7 +837,7 @@ automatically. Operators who need a forward proxy use network-level egress contr
 ### 7.3 Mode eligibility (normative)
 
 | CS | AP6 | AP7 | AP4 | Effective mode |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | fail | any | any | any | **disabled** |
 | pass | **fail** | any | any | **disabled** |
 | pass | pass | **fail** | any | **disabled** |
@@ -882,6 +883,7 @@ redirect-validation shortfall does not compromise it.
 ### 7.4 Restricted mode, precisely
 
 Valid **only** when CS, AP6, and AP7 have all independently passed:
+
 - Destinations are exact `{host, port, scheme}` allowlist entries — no wildcards, no
   subdomain matching. Nothing is approved by default.
 - **No redirects are followed in restricted mode, for any effect class.**
@@ -943,6 +945,7 @@ connected to) and to **every redirect hop in `full` mode**:
 
 **Validation procedure, every request, every mode, every caller, including every
 redirect hop:**
+
 1. Resolve once; normalize every address, **including IPv4 forms embedded in IPv6**
    (both the IPv6 form and the embedded IPv4 are checked).
 2. If **any** resolved address is in the absolute-deny set, **reject the entire
@@ -978,7 +981,7 @@ author-discipline risk the earlier draft carried (superseded; see Risk R5's curr
 wording below).
 
 | Tier | Marker set when | Pre-dispatch (`known`) is claimable only for failures before… |
-|---|---|---|
+| --- | --- | --- |
 | **A** | the first write issued by the HTTP layer on the TLS-wrapped stream (https) or the stream (http); set before the write, with no `await` between | that first application-data write (including handshake failures) |
 | **B** | TLS handshake completion (https) / TCP connect completion (http), no write-level distinction | handshake/connect completion |
 | **C** | our own `connect_tcp` returning (TCP established) | a TCP connection existing at all (DNS, validation, connect failures only) |
@@ -991,6 +994,7 @@ gate), if that backend cannot be installed at all, CS itself fails and outbound 
 
 **Spike S1** (the first task of M3, release-blocking per gate RB2) must, against the
 pinned httpcore/httpx versions, determine and document in a "layer report":
+
 1. whether the handshake completes *inside* `start_tls` before it returns;
 2. whether the HTTP layer's writes go through the TLS-wrapped stream's `write()`, and
    whether handshake writes ever appear there too;
@@ -1069,7 +1073,7 @@ price tables, no currency fields, no estimated cost display (see
 
 ### 9.3 Adapter billing-classification contract
 
-```
+```text
 classify(outcome) -> Disposition {
    retryable: bool,
    usage_reported: { input_tokens?, output_tokens?, total_tokens? } | null,
@@ -1213,7 +1217,7 @@ file, to avoid the drift that comes from keeping the same fact in two places:
 **Target repository structure** (not yet created beyond what M0 needs — see
 `docs/milestones.md` for when each directory is introduced):
 
-```
+```text
 flowforge/
 ├── backend/                      # introduced starting M1
 │   ├── pyproject.toml  uv.lock  .python-version  alembic.ini
@@ -1233,7 +1237,7 @@ flowforge/
 ## 17. Consistency summary
 
 | Check | Result |
-|---|---|
+| --- | --- |
 | Queue ownership | `runs` is the sole queue. `queued` ⇒ no node rows; `waiting` ⇒ unowned; `running` ⇒ owned by exactly one `(lease_owner, lease_epoch)` |
 | Writers | `node_runs`/`run_events`: the fenced lease holder only. `runs`: the API writes only enqueue, the idempotent cancel, and `queued → cancelled`; the worker writes everything else |
 | Execution persistence | State is a pure function of `(definition, node_runs rows, db_now)`; retry timers, deadlines, and parked wake times are columns, never memory |

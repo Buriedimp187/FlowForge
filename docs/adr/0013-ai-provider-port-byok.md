@@ -20,7 +20,7 @@ v0.1, and **FlowForge never computes a monetary amount anywhere in the system.**
 
 **Adapter billing-classification contract** (the final, corrected form):
 
-```
+```text
 classify(outcome) -> Disposition {
    retryable: bool,
    usage_reported: { input_tokens?, output_tokens?, total_tokens? } | null,

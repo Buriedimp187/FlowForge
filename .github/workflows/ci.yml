@@ -1,13 +1,15 @@
-# FlowForge CI — M0 (documentation-foundation) skeleton.
+# FlowForge CI.
 #
-# This workflow deliberately does NOT run any application test suite: no
-# backend, frontend, or database code exists yet (see docs/milestones.md).
-# It validates only what actually exists in this repository today — the
-# documentation structure and Markdown syntax — and is designed to be
-# extended, not replaced, once M1 introduces real application code.
+# Documentation checks (M0) plus the backend test job (M2.1), which is the
+# first job to run application code: the pure-engine unit tests and the
+# PostgreSQL integration tests. Frontend, Docker-build and outbound-security
+# jobs are added at the milestones that introduce them (docs/milestones.md).
 #
-# Third-party actions are pinned to a commit SHA (never a floating tag),
-# per docs/adr/0015-toolchain-baselines-and-pinning.md.
+# Third-party actions are pinned to a commit SHA (never a floating tag), and
+# the PostgreSQL service image is pinned by tag AND digest, per
+# docs/adr/0015-toolchain-baselines-and-pinning.md. No Dockerfile or Compose
+# file is involved (docs/m2-persistence-design.md D3): the database is a
+# `services:` container supplied by the runner.
 
 name: CI
 
@@ -125,18 +127,62 @@ jobs:
             **/*.md
             !node_modules
 
+  backend-tests:
+    name: Backend tests (unit + PostgreSQL 17 integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Must equal POSTGRES_IMAGE in backend/tests/integration/support.py
+        # (checked by backend/tests/unit/test_toolchain_pins.py).
+        image: postgres:17.12@sha256:dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f035b1ab1823aff3205
+        env:
+          POSTGRES_USER: flowforge_test
+          POSTGRES_PASSWORD: flowforge_test
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U flowforge_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      FLOWFORGE_TEST_DATABASE_URL: postgresql+psycopg://flowforge_test:flowforge_test@localhost:5432/postgres
+      # The integration tests may never be silently skipped in CI.
+      FLOWFORGE_REQUIRE_DB_TESTS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Python (baseline series 3.14)
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Install locked dependencies
+        run: |
+          set -euo pipefail
+          python --version
+          pip install -r backend/requirements-lock.txt -r backend/requirements-dev-lock.txt
+          pip check
+
+      - name: Run unit and integration tests
+        working-directory: backend
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -t . -p "test_*.py" -v
+
   # Placeholder for future expansion — intentionally not implemented yet.
-  # Real jobs (Python lint/type-check/tests, frontend lint/tests, import-linter
-  # boundary checks, Docker build, outbound-security test suites) are added
-  # starting at the milestone that introduces the corresponding code, per
-  # docs/milestones.md. This job exists only so the workflow file documents
-  # that omission explicitly rather than silently.
+  # Frontend lint/tests, import-linter boundary checks, Docker build, and
+  # outbound-security test suites are added starting at the milestone that
+  # introduces the corresponding code, per docs/milestones.md. This job exists
+  # only so the workflow file documents that omission explicitly.
   future-application-checks:
-    name: Application checks (not yet implemented)
+    name: Application checks (frontend, Docker, outbound security: not yet implemented)
     runs-on: ubuntu-latest
     steps:
       - name: Note
         run: |
-          echo "No backend, frontend, or database code exists yet (M0)."
+          echo "No frontend, Docker, or outbound-security code exists yet."
           echo "This job is a documented placeholder, not a passing test suite."
           echo "See docs/milestones.md for when each real check is introduced."

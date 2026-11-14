@@ -22,7 +22,7 @@ values driving this catalog.
 ## The three catalog entries (exact wording, do not alter)
 
 | Catalog id | Exact wording |
-|---|---|
+| --- | --- |
 | `llm.usage_reported` | "Usage reported by the provider: N tokens. This is a lower bound across attempts." |
 | `llm.not_charged` | "Not charged (basis: <pre-dispatch \| provider documentation: ref>)." |
 | `llm.billing_uncertain` | "Billing could not be determined. The provider may have charged for this request." |

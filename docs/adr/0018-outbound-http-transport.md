@@ -28,7 +28,7 @@ the write elsewhere.
 **Dispatch-marker tiers, defined at the application-data layer, not the TCP layer:**
 
 | Tier | Marker set when |
-|---|---|
+| --- | --- |
 | **A** (preferred) | the first write on the **TLS-wrapped stream, after the handshake** (https) or the stream (http) — not a write to the underlying TCP socket, which also carries handshake bytes a TCP-level hook cannot distinguish from request data |
 | **B** | TLS handshake completion / TCP connect completion, with no write-level distinction |
 | **C** | our own `connect_tcp` returning (TCP established) |

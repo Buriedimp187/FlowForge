@@ -1,25 +1,39 @@
 [project]
 name = "flowforge"
 version = "0.1.0.dev0"
-description = "FlowForge backend: domain model and execution engine (M1)."
+description = "FlowForge backend: domain model, execution engine (M1), and PostgreSQL persistence foundation (M2.1)."
 readme = "../README.md"
 license = { text = "MIT" }
-# Baseline series per ADR-0015 / docs/toolchain-versions.md. This range is
-# intentionally permissive (3.13 through <3.16) rather than pinned to an
-# exact patch, since no exact patch pin has been finalized yet -- see
-# docs/toolchain-versions.md for why 3.14 is the selected baseline and
-# the open item regarding its verification against this dependency set.
-requires-python = ">=3.13,<3.16"
+# Baseline series per ADR-0015 / docs/toolchain-versions.md: 3.14 is the
+# selected baseline. The floor is 3.14 (not 3.13) because the approved ID
+# decision (docs/m2-persistence-design.md D1) uses the standard library's
+# uuid.uuid7(), which first exists in 3.14. The range is otherwise permissive
+# (<3.16) rather than pinned to an exact patch, since no exact patch pin has
+# been finalized yet -- see docs/toolchain-versions.md, including the open
+# item that no code has yet been executed on a 3.14 interpreter.
+requires-python = ">=3.14,<3.16"
 
-# M1's first (and, for this correction pass, only) third-party runtime
-# dependency: JSON Schema Draft 2020-12 validation for node parameters
-# (docs/architecture.md section 5, section 2.2), per the user-approved
-# decision to implement full JSON Schema rather than a hand-rolled
-# subset. Exact pin and the verification evidence behind it are recorded
-# in requirements-lock.txt (no uv.lock exists yet, see
-# docs/toolchain-versions.md) and in the M1 final-correction report.
+# Direct runtime dependencies, each pinned exactly. requirements-lock.txt is
+# the exact-version installation lock for these and their transitive
+# dependencies (no uv.lock exists yet, see docs/toolchain-versions.md).
+#
+# - jsonschema: JSON Schema Draft 2020-12 validation for node parameters
+#   (docs/architecture.md sections 5 and 2.2), M1.
+# - SQLAlchemy (Core only, no ORM), psycopg 3, alembic: the PostgreSQL
+#   persistence foundation, M2.1 (docs/m2-persistence-design.md D2).
 dependencies = [
     "jsonschema==4.26.0",
+    "SQLAlchemy==2.1.8",
+    "alembic==1.20.1",
+    "psycopg[binary]==3.3.9",
+]
+
+[project.optional-dependencies]
+# Development/test-only; never a runtime dependency of the shipped
+# application (docs/m2-persistence-design.md D3). Locked in
+# requirements-dev-lock.txt.
+test = [
+    "testcontainers[postgres]==4.15.0",
 ]
 
 [tool.pytest.ini_options]
@@ -34,3 +48,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"flowforge.db.migrations" = ["script.py.mako"]
