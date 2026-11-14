@@ -24,7 +24,9 @@ on an expired-lease takeover, never on an ordinary claim or a wake from `waiting
 payloads). The heartbeat that renews a lease runs on a dedicated thread with its own
 database connection, separate from the executor's event loop, so a CPU-heavy node
 cannot starve lease renewal. On SIGTERM, the worker parks every run it owns for
-immediate pickup by another worker, rather than waiting for the lease to expire.
+immediate pickup by another worker, rather than waiting for the lease to expire; an
+attempt still running at grace expiry is left in its `running` row, and the next
+claimant resolves it as an orphan through the ordinary crash-recovery rules.
 
 ## Consequences
 

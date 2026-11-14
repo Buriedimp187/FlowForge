@@ -274,12 +274,13 @@ UPDATE runs SET
    deadline_at = COALESCE(deadline_at, now() + :run_timeout)      -- set once, at first claim
  WHERE id = :id
 RETURNING lease_epoch, recovery_count, cancel_requested_at,
-          deadline_at, queue_deadline_at, now() AS db_now;
+          deadline_at, queue_deadline_at;
 COMMIT;
 ```
 
 **Post-claim checks, evaluated in order**, each finalizing via the fenced T4 (§6.2)
-when it applies:
+when it applies. `db_now` below is the database-clock reading (`clock_timestamp()`)
+returned by the first fenced guard after the claim (§4.4), never the worker's clock:
 
 1. `prev_status = 'queued'` and `db_now > queue_deadline_at` → finalize `timed_out`,
    `error.code = 'queue_timeout'` (no node has ever run).
@@ -297,13 +298,22 @@ query as an ordinary claim.
 ### 4.4 The fenced guard (heartbeat, and the prelude of every state-changing write)
 
 ```sql
-UPDATE runs SET visible_at = now() + :ttl
+UPDATE runs SET visible_at = clock_timestamp() + :ttl
  WHERE id = :id AND status = 'running'
    AND lease_owner = :worker AND lease_epoch = :epoch
-RETURNING cancel_requested_at, deadline_at, now() AS db_now;   -- 0 rows ⇒ lease lost
+RETURNING cancel_requested_at, deadline_at,
+          visible_at - :ttl AS db_now;                          -- 0 rows ⇒ lease lost
 ```
 
 - Default TTL 30 s, heartbeat period `ttl/3` (10 s).
+- **`clock_timestamp()`, not `now()`.** `now()` is the *transaction-start* time, so a
+  guard that waited on the row lock would stamp a stale expiry; the renewal and
+  `db_now` are one `clock_timestamp()` sample (`db_now` is `visible_at − :ttl`). The
+  guard authorizes by `lease_owner`/`lease_epoch` only — `visible_at` is never in its
+  predicate, because an expired `visible_at` does not revoke ownership until a new
+  claimant increments the epoch. If the lock's previous holder released it without
+  modifying the row, the sample may predate the wait by at most the wait: an earlier
+  expiry, which is conservative and never affects fencing.
 - **The heartbeat runs on a dedicated thread with its own connection**, not as an
   asyncio task sharing the executor's event loop — this is deliberate, so that a
   CPU-heavy or accidentally blocking node cannot starve lease renewal and trigger a
@@ -355,19 +365,38 @@ RETURNING status;
 
 **Graceful release (SIGTERM):** the worker stops claiming, lets in-flight **nodes**
 finish within a grace period, then parks every remaining owned run with
-`status='waiting', lease_owner=NULL, visible_at=now()` via the same fenced update —
-so another worker picks it up immediately with no lease-expiry delay. A node that
-exceeds the grace period is interrupted and resolved per §6.2. The Compose
-`stop_grace_period` must exceed the longest expected node timeout (an operational
-requirement to document at M4).
+`status='waiting', lease_owner=NULL, visible_at=now()` — through a dedicated
+statement with the same lease-owner and epoch predicates as the park above but
+without its `cancel_requested_at IS NULL` predicate (the run is claimable at once,
+so a pending cancel cannot sleep, and the next claimant observes it under its own
+lease) — so another worker picks it up immediately with no lease-expiry delay. An
+attempt still running when the grace period expires is **not** resolved by the
+exiting worker and no interruption cause is invented: its `node_runs` row stays
+`running` with its original `started_epoch`, and nothing further is written for it.
+The next claimant's higher `lease_epoch` makes that row an orphan, which it
+resolves exactly as for a crash, through the §6.2 *Crash / lease lost* column.
+Fencing stops the exiting process's stale database writes, but it cannot undo or
+disprove an external side effect that process already performed, and its attempt
+may briefly overlap the new owner's recovery; the idempotency key and the
+`unknown`-outcome rules bound that risk. The Compose `stop_grace_period` must exceed
+the longest expected node timeout (an operational requirement to document at M4).
 
 ### 4.6 Time limits
 
 | Limit | Starts | Ends | Enforced by | On expiry |
 |---|---|---|---|---|
 | **Queue timeout** (`queue_deadline_at`) | Enqueue | First claim | The claiming worker (post-claim check 1) | `timed_out`, `queue_timeout`; nothing ever executes |
-| **Run timeout** (`deadline_at`) | First claim | Terminal | The live worker's timer; any later claimer (check 2); a parked run wakes at `deadline_at` | `timed_out`, with interrupted nodes resolved per §6.2 |
+| **Run timeout** (`deadline_at`) | First claim | Terminal | The live worker's timer; any later claimer (check 2); a parked run wakes at `deadline_at` | `timed_out` once live attempts have drained; any node left started-without-result is resolved per the §6.2 *Run deadline* column |
 | **Node timeout** | T2 of that attempt | That attempt's end | The executor | Per the §6.2 matrix; retry backoff time is excluded |
+
+**Run-deadline expiry.** Once the database confirms `deadline_at` has passed (a
+worker timer only prompts the check; the fresh `db_now` of §4.4 decides): no new node
+or retry starts; attempts already running drain and persist through normal T3 — no
+task cancellation or interruption event is issued because the deadline expired; T4
+finalizes `timed_out` only after the current live attempts have resolved, deciding the
+deadline atomically (§6.2a); a node left started-without-result by an earlier lease
+epoch (an orphan) is resolved by the §6.2 *Run deadline* column and is never
+re-executed. The per-node timeout is independent and unchanged.
 
 The run timeout is wall-clock from first claim and **deliberately includes retry
 waits and parked downtime** — nothing resets it, and `COALESCE` in T1 guarantees it
@@ -542,6 +571,13 @@ mutation is in doubt) or `unknown` (an external write may have been applied).
 **`outcome` refers only to mutation of external state** — see §6.3 for why LLM
 billing is tracked separately and is *not* represented by `outcome`.
 
+A run deadline does not itself interrupt a *live* attempt: once it is
+database-confirmed the worker starts no new nodes or retries, lets live attempts
+finish through normal T3 (no cancellation call or interruption event is issued for
+the deadline), and finalizes `timed_out` after they resolve. The **Run deadline**
+column below applies to an attempt left started-without-result that no live worker
+is draining — an orphan — and to nothing else. The per-node timeout is independent.
+
 | Class | Crash / lease lost (orphan at claim) | Cancel | Node timeout | Run deadline |
 |---|---|---|---|---|
 | `pure` | Re-execute | `cancelled`, known | `failed` (timeout), known; retryable per policy | `cancelled`, known |
@@ -627,7 +663,9 @@ RETURNING status;                          -- 0 rows ⇒ already terminal ⇒ HT
 - `queued` has no `node_runs` rows at all (§3.1), so the API may finalize it
   directly without violating the single-writer rule on node state.
 - `waiting` is made immediately claimable; the worker that claims it observes the
-  flag, resolves any `retry_wait` rows as `cancelled`/known, and finalizes.
+  flag, resolves any `retry_wait` rows as `cancelled` — keeping each row's recorded
+  outcome (an unknown outcome stays unknown), last failure, and attempt count, since
+  the retry was suppressed, never executed — and finalizes.
 - `running`: only the flag is set. The owning worker observes it through its next
   heartbeat, raises the cancellation event, lets in-flight nodes drain (U5), and
   resolves them per the interruption matrix above.
@@ -635,26 +673,48 @@ RETURNING status;                          -- 0 rows ⇒ already terminal ⇒ HT
 **Worker finalize, T4 (one statement, fenced, atomic against cancel):**
 
 ```sql
-UPDATE runs SET
+WITH s AS MATERIALIZED (SELECT clock_timestamp() AS t)   -- the one database-clock sample
+UPDATE runs r SET
    status = CASE
-      WHEN :natural IN ('failed', 'timed_out') THEN :natural    -- real failures are never masked
-      WHEN cancel_requested_at IS NOT NULL      THEN 'cancelled' -- a cancel that committed first wins
-      ELSE :natural END,                                         -- 'succeeded' | 'cancelled'
-   finished_at = now(), error = :err, lease_owner = NULL,
+      WHEN r.deadline_at <= s.t                 THEN 'timed_out'  -- a confirmed deadline outranks a natural failure
+      WHEN :natural IN ('failed', 'timed_out')  THEN :natural     -- real failures are never masked
+      WHEN r.cancel_requested_at IS NOT NULL    THEN 'cancelled'  -- a cancel that committed first wins
+      ELSE :natural END,                                          -- 'succeeded' | 'cancelled'
+   finished_at = s.t, error = :err, lease_owner = NULL,
    has_unknown_outcome = EXISTS (
        SELECT 1 FROM node_runs WHERE run_id = :id AND outcome = 'unknown')
- WHERE id = :id AND status = 'running'
-   AND lease_owner = :worker AND lease_epoch = :epoch
-RETURNING status;
+  FROM s
+ WHERE r.id = :id AND r.status = 'running'
+   AND r.lease_owner = :worker AND r.lease_epoch = :epoch
+   AND NOT EXISTS (SELECT 1 FROM node_runs
+                    WHERE run_id = :id AND status IN ('running', 'retry_wait'))
+RETURNING r.status;
 ```
 
+- **One clock sample, after the lock.** `s.t` is the only clock reading: it decides
+  the deadline term and sets `finished_at`, so the two cannot straddle the deadline
+  (`clock_timestamp()` advances within a statement). T4 executes only inside the
+  transaction whose fenced guard (§4.4, the same transaction's `LeaseProof` in the M2
+  design) has already locked the `runs` row, and row locks are held to transaction end,
+  so the sample is taken with the lock held — by statement order. PostgreSQL does not
+  guarantee evaluation order between a CTE and a row lock, and this design does not
+  rely on one.
+- **No unresolved node.** T4 refuses while any node row is `running` or `retry_wait`.
+  The finalizing transaction therefore first resolves pending `retry_wait` rows —
+  including a failed run's siblings — as `cancelled`, keeping outcome, last failure,
+  and attempt count (an unknown outcome never becomes known by this), and, when the
+  deadline is confirmed, resolves earlier-epoch orphans by the §6.2 *Run deadline*
+  column; a node with a live attempt of the current epoch is never touched and must
+  drain first.
 - The status is computed from the **row as locked at statement time** — there is no
   read-then-write window in which a concurrent cancel could be missed.
 - **Terminal-status precedence:** `failed`/`timed_out` (natural) > `cancelled` >
   `succeeded`. `:natural` is computed by the worker *before* applying any
   cancel-caused interruption, so a node interrupted by cancel never counts as a
-  natural failure.
-- Node rows are **never rewritten by finalization**. If a cancel wins after every
+  natural failure. A run deadline the database has confirmed by the time T4
+  executes outranks a natural `failed` and yields `timed_out`; node rows keep their
+  failures and outcomes.
+- Completed node rows are **never rewritten by finalization**. If a cancel wins after every
   node had already completed, the nodes still show `succeeded` with their real
   outputs, and the run shows `cancelled` with an event explaining that a cancel was
   requested before finalization and that N nodes had already completed — the side
@@ -672,6 +732,7 @@ instance, per gate RB3 — never a mock):
 | Cancel of a `queued` run vs. a concurrent claim | `SKIP LOCKED` plus the re-checked predicate after the row lock: either the claim wins (cancel then only sets the flag on a now-`running` row) or the cancel wins (the claim never sees a `queued` row to lock) |
 | A zombie's T4 vs. a reclaimer | `lease_epoch` mismatch on the zombie's write ⇒ 0 rows ⇒ the zombie's finalize is refused |
 | Reclaim vs. a delayed heartbeat | The row lock taken by the reclaiming claim and the row lock taken by the heartbeat's `UPDATE` serialize against each other; the epoch guard decides the outcome |
+| T4 vs. a deadline that has expired | T4 takes one clock sample inside its own statement: deadline confirmed ⇒ `timed_out` (node rows untouched); otherwise the normal result |
 
 ### 6.3 LLM requests: billable but not exactly-once
 

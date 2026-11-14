@@ -17,8 +17,10 @@ makes a `waiting` run immediately claimable, and otherwise only sets a
 (T4) is a single fenced statement whose terminal status is computed from the row **as
 locked at statement time**, with precedence `failed`/`timed_out` (natural) >
 `cancelled` > `succeeded` — so a cancel that commits first can never be overtaken by
-a late `succeeded` finalize, and vice versa. On workflow failure (including a
-cancellation reaching in-flight nodes), the engine **drains** in-flight nodes to
+a late `succeeded` finalize, and vice versa. A run deadline the database has
+confirmed when T4 executes is decided inside that statement, from one clock sample
+shared with `finished_at`, and yields `timed_out`. On workflow failure (including a
+cancellation, or a database-confirmed run deadline, reaching in-flight nodes), the engine **drains** in-flight nodes to
 their natural conclusion rather than forcibly cancelling them mid-flight (decision
 **U5**), because forcing a stop on an external write would itself manufacture a new
 outcome-unknown case.
@@ -37,7 +39,10 @@ had already committed; this was identified during review and closed by making
 finalization a single statement that re-derives the terminal status from the locked
 row rather than from a value computed before the lock was taken. The U5
 drain-vs-force-cancel choice was confirmed explicitly rather than left as an
-implementation detail.
+implementation detail. M2 design review: the drain was extended explicitly to a
+confirmed run deadline; T4 now decides the deadline in-statement on one clock sample;
+and suppressing a pending `retry_wait` preserves its recorded outcome rather than
+resolving it as known.
 
 ## Related
 
