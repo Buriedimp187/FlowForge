@@ -65,8 +65,9 @@ even selected with exact versions yet. (SQLAlchemy, Alembic and psycopg 3 were
 selected and installed at M2.1; see "M2.1 persistence dependencies" below.) This is
 narrower than it once was: `jsonschema` **has** since been declared and installed
 (the first backend dependency — see "Backend dependencies" below), with its own
-Python 3.14 evidence tracked separately there, which is metadata/wheel-availability
-evidence, not an executed-on-3.14 verification. **The check for this remaining,
+Python 3.14 evidence tracked separately there (wheel-availability evidence, since
+superseded for the installed set by the executed CI validation recorded under
+"CI validation on Python 3.14"). **The check for this remaining,
 not-yet-installed list must happen before the M1 dependency lockfile (`uv.lock`) is
 finalized** — if a required dependency lacks a 3.14 wheel or has an unresolved
 incompatibility at that time, the baseline series decision itself (3.14 vs. 3.13 vs.
@@ -136,7 +137,11 @@ user-approved decision behind ADR-0005's latest revision). The library:
 
 **Python 3.14 compatibility — what was, and was not, verified.**
 
-- **Not executed on Python 3.14.** No 3.14 interpreter is installed anywhere on the
+*Historical record of the M1 verification pass. The "not executed on 3.14" and
+"open item" statements below were true when written and are superseded by the CI
+run recorded under "CI validation on Python 3.14".*
+
+- **Not executed on Python 3.14 (at that time).** No 3.14 interpreter is installed anywhere on the
   machine this work was done on (confirmed via `py -0p` and a `winget list` query,
   which show only Python 3.15.2). Installing a new Python interpreter was judged out
   of scope for a dependency-verification task and was not done. The isolated venv
@@ -154,9 +159,8 @@ user-approved decision behind ADR-0005's latest revision). The library:
   verification**, and it is reported as exactly that distinction — not blurred into
   a claim that compatibility was "verified" in the stronger sense. Re-running
   `backend/requirements-lock.txt`'s install and the full backend test suite on an
-  actual Python 3.14 interpreter, once one is available in this environment, remains
-  an **open item** and should happen before this dependency is treated as fully
-  verified for production use.
+  actual Python 3.14 interpreter was at that time an **open item**; it has since
+  been done in CI (see "CI validation on Python 3.14").
 - `jsonschema.Draft202012Validator` was functionally exercised (not merely imported)
   in this same Python-3.15.2 venv: schema well-formedness checks
   (`check_schema`), instance validation with nested objects/arrays, `required`,
@@ -168,7 +172,9 @@ user-approved decision behind ADR-0005's latest revision). The library:
 
 Added for the PostgreSQL persistence foundation (`docs/m2-persistence-design.md`).
 All are exact pins in `backend/pyproject.toml`; installed versions were resolved in
-the isolated `backend/.venv` on **Python 3.15.2** only.
+the isolated `backend/.venv` on **Python 3.15.2** (local development machine); the
+same pins were later installed and tested on Python 3.14.10 in CI (see "CI
+validation on Python 3.14").
 
 | Package | Pin | Role |
 | --- | --- | --- |
@@ -182,8 +188,9 @@ the isolated `backend/.venv` on **Python 3.15.2** only.
   exact `==` pins including transitive packages. `backend/tests/unit/test_toolchain_pins.py`
   checks `pyproject.toml` against both.
 - **Python floor:** `requires-python = ">=3.14,<3.16"` because ids use the
-  standard-library `uuid.uuid7()` (added in 3.14). **No code has been executed on
-  Python 3.14**; that runtime verification is still outstanding.
+  standard-library `uuid.uuid7()` (added in 3.14). This is the **supported range**,
+  distinct from the versions actually tested (below): CI exercises 3.14.10 only,
+  and 3.15 is covered locally (3.15.2) but not in CI.
 - **PostgreSQL test/CI image:** `postgres:17.12` pinned with its OCI index digest
   `sha256:dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f035b1ab1823aff3205`
   (observed 2026-11-13). It is named once in `backend/tests/integration/support.py`
@@ -191,6 +198,27 @@ the isolated `backend/.venv` on **Python 3.15.2** only.
   unit test). Re-verify tag and digest when bumping the PostgreSQL minor.
 - The Testcontainers reaper (Ryuk) is disabled so that no unpinned helper image is
   pulled; the test support module removes its container at process exit.
+
+### CI validation on Python 3.14
+
+The M2.1 backend (runtime and test locks) was executed on Python 3.14 in GitHub
+Actions. Tested versions are recorded separately from the supported range
+(`requires-python = ">=3.14,<3.16"`).
+
+| | |
+| --- | --- |
+| Run | `https://github.com/Buriedimp187/FlowForge/actions/runs/43544740153` |
+| Commit validated | `aa5782e` |
+| Python | **3.14.10** (`actions/setup-python`, `python-version: "3.14"`) |
+| PostgreSQL | **17.12**, service image `postgres:17.12@sha256:dbb9623d5121b5d2c2c9e2fba56e40193cbb3510d4af7f035b1ab1823aff3205` |
+| Install | `pip install -r backend/requirements-lock.txt -r backend/requirements-dev-lock.txt`; `pip check` reported no broken requirements |
+| Backend tests | 285 run, 285 passed, including the PostgreSQL integration tests (`FLOWFORGE_REQUIRE_DB_TESTS=1`, so none could skip) |
+| Jobs | all four CI jobs passed |
+
+What this does not establish: Python 3.15 is not exercised in CI (it was exercised
+locally on 3.15.2 only), the `setup-python` selector floats to the latest 3.14
+patch release (3.14.10 on this run), and only the dependencies installed at M2.1
+are covered.
 
 ### No lockfile tool (`uv`) yet
 
@@ -220,9 +248,10 @@ until `uv.lock` is introduced at a later milestone. It is regenerated the same w
    used by the current install-and-test workflow, covering `jsonschema` and its
    transitive dependencies together, and is what is really installed, until
    `uv.lock` replaces it; and Python 3.14 **execution verification** of that
-   installed set is a third, still-open thing neither file establishes on its
-   own (see "Backend dependencies" above) — installed-and-pinned is not the same
-   claim as executed-and-verified-on-3.14.
+   installed set is a third thing neither file establishes on its own —
+   installed-and-pinned is not the same claim as executed-and-verified-on-3.14.
+   That third item is now evidenced for the M2.1 set by the CI run recorded under
+   "CI validation on Python 3.14".
 4. **CI third-party actions are pinned to a commit SHA**, not a tag (see
    `.github/workflows/ci.yml` and `docs/adr/0015-toolchain-baselines-and-pinning.md`).
 5. **Re-verification is required, not optional**, at each milestone that first
