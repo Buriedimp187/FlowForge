@@ -178,7 +178,7 @@ jobs:
   # introduces the corresponding code, per docs/milestones.md. This job exists
   # only so the workflow file documents that omission explicitly.
   future-application-checks:
-    name: Application checks (frontend, Docker, outbound security: not yet implemented)
+    name: Application checks (frontend, Docker, outbound security - not yet implemented)
     runs-on: ubuntu-latest
     steps:
       - name: Note
