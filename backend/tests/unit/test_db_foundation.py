@@ -155,10 +155,11 @@ class ArchitecturalBoundaryTestCase(unittest.TestCase):
             with self.subTest(file=str(path.relative_to(SRC))):
                 self.assertIsNone(forbidden.search(path.read_text(encoding="utf-8")))
 
-    def test_no_worker_logic_has_been_added_yet(self) -> None:
-        # Claiming, leases, heartbeats, fencing, retries, cancellation and
-        # finalization belong to later M2 stages.
-        self.assertFalse((SRC / "worker").exists())
+    def test_claim_and_lease_logic_lives_only_in_the_worker_package(self) -> None:
+        # M2.3 introduced flowforge.worker (design section 7). Claiming, leases and
+        # fencing code must stay out of flowforge.db, which holds only the engine,
+        # ids and migrations; the later M2 stages extend flowforge.worker.
+        self.assertTrue((SRC / "worker").is_dir())
         for path in self._sources("db"):
             source = path.read_text(encoding="utf-8")
             for banned in ("FOR UPDATE SKIP LOCKED", "lease_epoch +", "LeaseProof", "ClaimedRun"):
