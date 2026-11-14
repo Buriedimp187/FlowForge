@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from flowforge.worker.claim import claim_run
 from tests.integration.support import DatabaseTestCase, Sql, make_run, make_version, make_workflow
 
 TTL = timedelta(seconds=45)
@@ -50,6 +51,34 @@ class WorkerDatabaseTestCase(DatabaseTestCase):
         )
         values.update(overrides)
         return self.add_run(**values)
+
+    def claim(self, worker: str = "w1", ttl: timedelta = TTL):
+        """Claim one run through the real T1 and return the ``ClaimedRun`` (or ``None``)."""
+        with self.engine.connect() as connection:
+            return claim_run(connection, worker, ttl, RUN_TIMEOUT)
+
+    def start_run(self, worker: str = "w1", **overrides: Any):
+        """Enqueue-equivalent insert plus a real claim: a run owned by ``worker``."""
+        self.add_run(**overrides)
+        claimed = self.claim(worker)
+        assert claimed is not None
+        return claimed
+
+    def take_over(self, run_id: str | uuid.UUID, worker: str = "w2"):
+        """Expire the lease and reclaim it as ``worker``: the previous holder is now superseded."""
+        self.expire_lease(run_id)
+        claimed = self.claim(worker)
+        assert claimed is not None
+        return claimed
+
+    def node_row(self, run_id: str | uuid.UUID, node_key: str = "n1") -> tuple:
+        with self.engine.connect() as connection:
+            return tuple(
+                connection.execute(
+                    text("SELECT * FROM node_runs WHERE run_id = :id AND node_key = :k"),
+                    {"id": as_id(run_id), "k": node_key},
+                ).one()
+            )
 
     def expire_lease(self, run_id: str | uuid.UUID) -> None:
         with self.engine.begin() as connection:

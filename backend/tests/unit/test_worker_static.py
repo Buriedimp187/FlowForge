@@ -3,7 +3,7 @@
 Argument validation, frozen types, and the architectural boundaries of
 ``flowforge.worker``: Core-only SQL, no ORM, no ``::`` casts inside ``text()``
 (design D2), claim logic confined to the worker package, and nothing from the
-later M2 stages (guard, heartbeat, park, T2-T4) added yet.
+later M2 stages (T2-T4, finalization) added yet.
 """
 
 from __future__ import annotations
@@ -132,7 +132,13 @@ class FrozenTypesTestCase(unittest.TestCase):
 class SourceBoundaryTestCase(unittest.TestCase):
     def _worker_sources(self) -> dict[str, str]:
         files = sorted((SRC / "worker").glob("*.py"))
-        self.assertEqual({f.name for f in files}, {"__init__.py", "claim.py", "connection.py", "enqueue.py", "events.py"})
+        self.assertEqual(
+            {f.name for f in files},
+            {
+                "__init__.py", "claim.py", "connection.py", "enqueue.py", "events.py",  # M2.3
+                "guard.py", "heartbeat.py", "park.py", "shutdown.py",  # M2.4
+            },
+        )
         return {f.name: f.read_text(encoding="utf-8") for f in files}
 
     def test_the_t1_statements_keep_the_approved_shape(self) -> None:
@@ -170,8 +176,7 @@ class SourceBoundaryTestCase(unittest.TestCase):
 
     def test_later_stage_functionality_is_not_present_yet(self) -> None:
         banned = re.compile(
-            r"def (run_fenced_guard|heartbeat\w*|park\w*|finalize_run|run_t4|start_node|finish_node)\b"
-            r"|class FencedGuardResult\b"
+            r"def (finalize_run|run_t4|start_node|finish_node)\b"  # T2-T4 and finalization: M2.5+
         )
         for name, source in self._worker_sources().items():
             with self.subTest(file=name):
