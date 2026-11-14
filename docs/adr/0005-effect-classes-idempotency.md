@@ -75,6 +75,29 @@ classifies that combination itself: it requires the caller to supply retry
 context and delegates to `resolve_idempotent_write_timeout`, so there is one
 authoritative decision path, not two that could disagree.
 
+**Ordinary post-dispatch-ambiguous failure of an `unsafe_write` (M2.5, user-approved):**
+the rule "an `unsafe_write` with an unknown outcome fails the run outright, ignoring
+`on_error`" is stated for the outcome, not for how it arose, so it covers an
+**ordinary** failure whose request may have reached the other side
+(`FailureKind.POST_DISPATCH_AMBIGUOUS`), not only crash and timeout. Such a node is
+recorded `failed`, `outcome = unknown`, `error.cause = post_dispatch_ambiguous`, is
+never retried, and `on_error = route`/`continue` cannot override it: the run drains
+in-flight nodes, schedules nothing new, and ends `failed` with `has_unknown_outcome`.
+Two safeguards make this durable and non-bypassable. (1) The decision is
+**reconstructible from the persisted rows alone** — a node forces run failure iff its
+row is `failed` with `outcome = unknown` and `error.cause` is not `cancel` or
+`deadline` (those runs end `cancelled`/`timed_out`; a missing or unrecognized cause
+fails closed) — so a worker that takes over after a crash decides the same way; it
+needs neither the effect class nor the retry state, because an `idempotent_write` that
+may still be repeated is `retry_wait` (not `failed`) while its budget lasts, ordinary
+crash recovery restarts it with the same key (no `failed`/`unknown` row is written;
+this excludes a resolution-only pass for cancellation, the deadline, or a run already
+failing by this rule, where the orphan is resolved `cancelled`/`unknown` instead of
+restarted), and `failed`/`unknown` exists for it only once the budget is exhausted. (2) A write finishing with an unknown outcome
+carries **no output**, so no error-port route can be fed by it. No schema or SQL
+change is involved: the marker lives in the existing `error` field. Which concrete
+HTTP conditions the HTTP node classifies as ambiguous is an M3 decision.
+
 ## Related
 
 `docs/architecture.md` §5.2, §6; ADR-0004, ADR-0012, ADR-0013.

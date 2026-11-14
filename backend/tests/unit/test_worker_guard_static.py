@@ -249,10 +249,14 @@ class BoundaryTestCase(unittest.TestCase):
                 self.assertIsNone(banned.search(path.read_text(encoding="utf-8")))
 
     def test_only_the_guard_module_issues_the_lease_renewal(self) -> None:
+        # The renewal is `visible_at = clock_timestamp() + :ttl`. Reading the database
+        # clock elsewhere (the read-only snapshot samples db_now) is not a renewal.
+        renewal = re.compile(r"visible_at\s*=\s*clock_timestamp\(\)")
+        self.assertRegex((SRC / "guard.py").read_text(encoding="utf-8"), renewal)
         for path in sorted(SRC.glob("*.py")):
             if path.name != "guard.py":
                 with self.subTest(file=path.name):
-                    self.assertNotIn("clock_timestamp()", path.read_text(encoding="utf-8"))
+                    self.assertIsNone(renewal.search(path.read_text(encoding="utf-8")))
 
 
 if __name__ == "__main__":

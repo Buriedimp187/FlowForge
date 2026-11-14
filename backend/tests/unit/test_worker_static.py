@@ -137,6 +137,7 @@ class SourceBoundaryTestCase(unittest.TestCase):
             {
                 "__init__.py", "claim.py", "connection.py", "enqueue.py", "events.py",  # M2.3
                 "guard.py", "heartbeat.py", "park.py", "shutdown.py",  # M2.4
+                "codec.py", "outcome.py", "snapshot.py",  # M2.5 stage 1
             },
         )
         return {f.name: f.read_text(encoding="utf-8") for f in files}

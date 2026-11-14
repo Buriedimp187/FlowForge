@@ -496,7 +496,9 @@ recovery distinguish "never started" from "started, outcome unknown".
 
 **T3 (node finish, one transaction).** Run the fenced guard, then set the row to
 `succeeded` (with `output`), `failed` (with `error`, and `output` on the `error` port
-for `on_error = route`/`continue`), `cancelled`, or `retry_wait` (`retry_at = now() +
+for `on_error = route`/`continue` — **only when the outcome is `known`**: a node with an
+`unknown` outcome is written with no `output` at all, so no route can run past it, see
+§6.2), `cancelled`, or `retry_wait` (`retry_at = now() +
 backoff`, computed **by the database**, `failures = failures + 1`). In the same
 transaction, write `skipped` rows for any downstream node now unreachable (§3.2), and
 append events. Commit.
@@ -590,7 +592,7 @@ Rules:
 
 - **`unsafe_write` with `outcome_unknown` is never retried automatically and never
   labeled `cancelled`.** `error.cause ∈ {crash, cancel, timeout, deadline,
-  lease_lost}` records why.
+  lease_lost, post_dispatch_ambiguous}` records why.
 - If a reclaimer finds orphans **and** `cancel_requested_at` is set: `pure`/`read`
   resolve `cancelled` with no re-execute; `idempotent_write` resolves `cancelled`
   with unknown; `unsafe_write` follows the crash column (unknown).
@@ -623,7 +625,19 @@ Rules:
   silently-continued unsafe write is exactly the hazard this closes. For
   `idempotent_write` specifically, this rule applies only once its own retry
   budget is exhausted (see the dedicated rule immediately above) — not on the
-  first unknown-outcome timeout, which retries instead.
+  first unknown-outcome timeout, which retries instead. Ordinary crash recovery
+  restarts an orphaned `idempotent_write` attempt with the same key and never writes
+  a `failed`/`unknown` row for it; this excludes a resolution-only pass (the run is
+  being cancelled, has hit its deadline, or is already failing by this rule), where
+  the orphan is not restarted but resolved `cancelled`/`unknown`.
+  The rule also covers an **ordinary** post-dispatch-ambiguous failure of an
+  `unsafe_write` (below), and it is **reconstructible from the persisted rows
+  alone**, so a worker that takes over after a crash reaches the same decision: a
+  node forces the run to fail iff its row is `failed` with `outcome = unknown` and
+  `error.cause` is neither `cancel` nor `deadline` (those runs end `cancelled` /
+  `timed_out`); a missing or unrecognized cause also forces (fail closed). A node
+  with an unknown outcome carries no `output`, so `on_error = route`/`continue`
+  can never schedule a node from it.
 - An `outcome_unknown` from **cancel or deadline** ends the run `cancelled` /
   `timed_out`, with `has_unknown_outcome = true` and the affected nodes listed; the UI
   shows a prominent "outcome unknown" badge.
@@ -632,7 +646,11 @@ Rules:
   **only** for failures provably pre-dispatch (DNS failure, connection refused, TLS
   failure, an SSRF block, or validation) — a post-dispatch failure (read timeout,
   reset, any received HTTP response including 5xx) is **never** auto-retried for
-  `unsafe_write`.
+  `unsafe_write`. A post-dispatch failure the node classifies as ambiguous (a response
+  may have reached the other side) is recorded `failed`, `outcome = unknown`,
+  `error.cause = post_dispatch_ambiguous`, and fails the run ignoring `on_error` like
+  any other unknown `unsafe_write`; which concrete HTTP conditions count as ambiguous
+  is the HTTP node's classification (M3), not decided here.
 - **Per-item nodes:** without per-item checkpointing (U4, explicitly out of scope —
   see `docs/mvp-scope.md`), an interrupted per-item `unsafe_write` node is unknown as
   a whole. For cancel/timeout the error detail best-effort lists

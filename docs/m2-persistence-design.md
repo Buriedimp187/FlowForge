@@ -1640,6 +1640,39 @@ untouched.
 | **M2.7** | Lease-stability stress test (RB6) + retention maintenance | M2.5/M2.6 |
 | **M2.8** | Worker process entrypoint, config surface, structured logging | All prior |
 
+### M2.5 staged-implementation obligations
+
+M2.5 is implemented in reviewable stages: Stage 1 codec, snapshot and outcome builders;
+Stage 2 T2; Stage 3 T3; Stage 4 orphan recovery; Stage 5 the execution loop; Stage 6 the
+run-deadline timer and drain. The obligations below were recorded during Stage 1 and bind the
+named later stage. They add no new decision: each either restates an approved rule or lists a
+decision that is still open and must not be made by accident.
+
+**Stage 4 (orphan recovery).**
+
+- An `unsafe_write` orphan is resolved `failed`/`unknown` with `error.cause = 'crash'`, which
+  forces the run to fail (architecture §6.2). An `idempotent_write` orphan is restarted with the
+  same key and never written `failed`/`unknown`; in a resolution-only pass (cancellation,
+  deadline, or a run already failing by the forced-failure rule) it is resolved
+  `cancelled`/`unknown` instead of restarted.
+- **Open, not decided here:** (a) the run status when a reclaimer meets an `unsafe_write` crash
+  orphan while a cancellation is pending; (b) the exact resolution of an `idempotent_write`
+  orphan in the `max_recoveries` pass.
+- **Documentation alignment:** the post-claim list of §4.2 (architecture §4.3, design §4.2) names
+  only the `max_recoveries` and cancellation resolution-only passes, while architecture §6.2 and
+  ADR-0005 also describe a run that is already failing by the forced-failure rule as a
+  resolution-only case. Align that list at Stage 4, together with the decisions above. It is
+  deliberately unchanged until then.
+
+**Stage 5 (execution loop).**
+
+- **Fail closed on an undecodable snapshot.** A malformed persisted `error` (or any persisted node
+  data) that makes snapshot decoding raise `CodecError` must never be treated by the execution loop
+  as a transient database failure that lets normal scheduling continue. Stage 5 must define and
+  test fail-closed handling: forced run failure, or an equivalent explicit `engine_inconsistency`
+  termination. Snapshot decoding stays strict and must not be relaxed to accept malformed errors;
+  the forced-failure predicate (`run_must_fail`) only sees rows that decoded.
+
 ## 10. Disclosed limitations (not blocking, stated for the record)
 
 - Python 3.14 execution verification remains the open item carried from M1 — no
